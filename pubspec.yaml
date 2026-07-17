@@ -1,0 +1,45 @@
+name: verbenai
+description: "VerbenAI — genera fotos con IA en escenas predefinidas o por texto libre."
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.6.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Estado / navegación
+  flutter_riverpod: ^2.6.1
+  go_router: ^14.6.2
+
+  # Backend
+  supabase_flutter: ^2.8.0
+
+  # Pagos / suscripciones
+  purchases_flutter: ^8.4.0
+  purchases_ui_flutter: ^8.4.0
+
+  # Diseño (Anton + Work Sans, ver core/theme)
+  google_fonts: ^6.2.1
+  cached_network_image: ^3.4.1
+
+  # Selección de foto y compartir
+  image_picker: ^1.1.2
+  share_plus: ^10.1.2
+
+  # Analítica / crash reporting (instrumentado desde el día 1, ver
+  # services/analytics_service.dart)
+  posthog_flutter: ^4.6.0
+  sentry_flutter: ^8.11.0
+
+  crypto: ^3.0.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
