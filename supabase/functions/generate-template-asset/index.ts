@@ -1,14 +1,16 @@
 // generate-template-asset
 //
-// Herramienta de admin (no la usa la app de usuarios finales): genera una
-// escena desde cero con flux-1.1-pro/flux-dev a partir de un prompt de
-// texto, la sube al bucket privado 'templates' y crea la fila en la tabla
-// `templates` con is_active=false, para revisar manualmente antes de
-// publicarla. Autenticación: el propio SUPABASE_SERVICE_ROLE_KEY como Bearer
-// (no hay un rol de admin en auth.users todavía, y esta function nunca la
-// llama el cliente Flutter).
+// Herramienta de admin (no la usa la app de usuarios finales, la usa el
+// panel de admin — repo separado verbena-admin): genera una escena desde
+// cero con flux-1.1-pro/flux-dev a partir de un prompt de texto, la sube al
+// bucket privado 'templates' y crea la fila en la tabla `templates` con
+// is_active=false, para revisar manualmente antes de publicarla.
+// Autenticación: el JWT de sesión del admin logueado vía Supabase Auth
+// (email/contraseña), verificado contra la tabla admin_users — nunca el
+// service role key en crudo, que no debe salir del entorno de las Edge
+// Functions.
 //
-// Request:  POST, Authorization: Bearer <service role key>
+// Request:  POST, Authorization: Bearer <jwt de sesión del admin>
 //           body JSON = { categoryId: string, name: string, prompt: string,
 //                          replicateModel?: 'flux-1.1-pro' | 'flux-dev',
 //                          sortOrder?: number }
@@ -17,11 +19,10 @@
 //        o: { error } con 400/401/404/502 según el caso.
 
 import { corsHeaders } from "../_shared/cors.ts";
-import { supabaseAdmin } from "../_shared/supabase.ts";
+import { supabaseAdmin, getAuthedUser } from "../_shared/supabase.ts";
 import { runTextToImage } from "../_shared/replicate.ts";
 import { uploadResultImage } from "../_shared/storage.ts";
 
-const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const PREVIEW_URL_TTL_SECONDS = 60 * 60 * 24;
 
 Deno.serve(async (req) => {
@@ -32,8 +33,19 @@ Deno.serve(async (req) => {
     return json({ error: "method not allowed" }, 405);
   }
 
-  const authHeader = req.headers.get("Authorization") ?? "";
-  if (authHeader !== `Bearer ${SERVICE_ROLE_KEY}`) {
+  const admin = supabaseAdmin();
+
+  const user = await getAuthedUser(req);
+  if (!user) {
+    return json({ error: "unauthorized" }, 401);
+  }
+  const { data: adminRow, error: adminErr } = await admin
+    .from("admin_users")
+    .select("user_id")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (adminErr) throw adminErr;
+  if (!adminRow) {
     return json({ error: "unauthorized" }, 401);
   }
 
@@ -62,8 +74,6 @@ Deno.serve(async (req) => {
   if (replicateModel !== "flux-1.1-pro" && replicateModel !== "flux-dev") {
     return json({ error: "replicateModel must be 'flux-1.1-pro' or 'flux-dev'" }, 400);
   }
-
-  const admin = supabaseAdmin();
 
   try {
     const { data: category, error: categoryErr } = await admin
