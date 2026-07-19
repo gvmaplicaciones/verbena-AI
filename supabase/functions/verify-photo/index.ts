@@ -18,6 +18,7 @@
 import { corsHeaders } from "../_shared/cors.ts";
 import { getAuthedUser, supabaseAdmin } from "../_shared/supabase.ts";
 import { runContentFilter } from "../_shared/replicate.ts";
+import { encodeBase64 } from "../_shared/bytes.ts";
 
 // Backstop de servidor para "sesión vigente mientras la app esté abierta, o
 // 2-4h tras cerrarla" (el cliente no tiene por qué cerrar la sesión al
@@ -64,17 +65,24 @@ Deno.serve(async (req) => {
   try {
     const { data: existing, error: existingErr } = await admin
       .from("verified_photos")
-      .select("id, status")
+      .select("id, status, storage_path")
       .eq("user_id", user.id)
       .eq("file_hash", fileHash)
       .maybeSingle();
     if (existingErr) throw existingErr;
 
-    if (existing) {
+    // approved pero sin storage_path -> cleanup-expired-photos (o la purga
+    // por EXPIRATION de RevenueCat) ya borró el archivo; hay que
+    // re-verificar y resubir en vez de reutilizar un caché que ya no existe
+    // en Storage. El hash sigue siendo el mismo, así que se actualiza la
+    // fila existente en vez de intentar un insert (violaría el unique
+    // (user_id, file_hash)).
+    const needsReverify = existing?.status === "approved" && !existing.storage_path;
+    if (existing && !needsReverify) {
       return await handleExisting(admin, user.id, existing);
     }
 
-    return await verifyNewPhoto(admin, user.id, bytes, contentType, ext, fileHash);
+    return await verifyNewPhoto(admin, user.id, bytes, contentType, ext, fileHash, existing?.id);
   } catch (err) {
     console.error("verify-photo error", err);
     return json({ error: "internal error verifying photo" }, 500);
@@ -139,22 +147,24 @@ async function verifyNewPhoto(
   contentType: string,
   ext: string,
   fileHash: string,
+  upsertId?: string,
 ) {
   const dataUri = `data:${contentType};base64,${encodeBase64(bytes)}`;
   const result = await runContentFilter(dataUri);
 
   if (!result.passed) {
-    const { data: rejected, error } = await admin
-      .from("verified_photos")
-      .insert({
-        user_id: userId,
-        file_hash: fileHash,
-        status: "rejected",
-        moderation_result: result.raw,
-        is_persisted: false,
-      })
-      .select("id")
-      .single();
+    const payload = {
+      user_id: userId,
+      file_hash: fileHash,
+      status: "rejected",
+      moderation_result: result.raw,
+      is_persisted: false,
+      storage_path: null,
+      expires_at: null,
+    };
+    const { data: rejected, error } = upsertId
+      ? await admin.from("verified_photos").update(payload).eq("id", upsertId).select("id").single()
+      : await admin.from("verified_photos").insert(payload).select("id").single();
     if (error) throw error;
 
     return json({
@@ -182,19 +192,18 @@ async function verifyNewPhoto(
     .upload(storagePath, bytes, { contentType, upsert: true });
   if (uploadErr) throw uploadErr;
 
-  const { data: verifiedPhoto, error: insertErr } = await admin
-    .from("verified_photos")
-    .insert({
-      user_id: userId,
-      file_hash: fileHash,
-      storage_path: storagePath,
-      is_persisted: isSubscribed,
-      status: "approved",
-      moderation_result: result.raw,
-      expires_at: isSubscribed ? null : new Date(Date.now() + SESSION_TTL_MS).toISOString(),
-    })
-    .select("id")
-    .single();
+  const approvedPayload = {
+    user_id: userId,
+    file_hash: fileHash,
+    storage_path: storagePath,
+    is_persisted: isSubscribed,
+    status: "approved",
+    moderation_result: result.raw,
+    expires_at: isSubscribed ? null : new Date(Date.now() + SESSION_TTL_MS).toISOString(),
+  };
+  const { data: verifiedPhoto, error: insertErr } = upsertId
+    ? await admin.from("verified_photos").update(approvedPayload).eq("id", upsertId).select("id").single()
+    : await admin.from("verified_photos").insert(approvedPayload).select("id").single();
   if (insertErr) throw insertErr;
 
   const session = await ensureActiveSession(admin, userId, verifiedPhoto.id);
@@ -211,15 +220,6 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
   return Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
-}
-
-function encodeBase64(bytes: Uint8Array): string {
-  let binary = "";
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-  }
-  return btoa(binary);
 }
 
 function json(body: unknown, status = 200) {

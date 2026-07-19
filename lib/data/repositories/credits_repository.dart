@@ -25,3 +25,7 @@ class CreditsRepository {
 final creditsRepositoryProvider = Provider<CreditsRepository>((ref) {
   return CreditsRepository(ref.watch(supabaseClientProvider));
 });
+
+final myCreditsProvider = FutureProvider<UserCredits>((ref) {
+  return ref.watch(creditsRepositoryProvider).fetchMyCredits();
+});

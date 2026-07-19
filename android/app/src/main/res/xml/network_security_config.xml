@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Solo aplica en builds con android:debuggable="true"; Android Gradle Plugin
+  ignora debug-overrides en release, así que esto no afecta nunca a producción.
+  Necesario en desarrollo porque Norton Web/Mail Shield intercepta TLS a nivel de
+  red en esta máquina y el emulador no confía en su CA por defecto (solo confía en
+  las CAs de sistema).
+-->
+<network-security-config>
+    <debug-overrides>
+        <trust-anchors>
+            <certificates src="user" />
+            <certificates src="system" />
+        </trust-anchors>
+    </debug-overrides>
+</network-security-config>

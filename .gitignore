@@ -20,7 +20,7 @@ android/local.properties
 # Secrets — nunca committear valores reales de --dart-define
 *.env
 .env
-dart_defines.json
+dart_define.json
 
 # Supabase local dev
 supabase/.branches/

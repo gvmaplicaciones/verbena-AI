@@ -6,4 +6,5 @@ abstract final class AppRoutes {
   static const result = '/result';
   static const paywall = '/paywall';
   static const profile = '/profile';
+  static const privacyPolicy = '/profile/privacy-policy';
 }

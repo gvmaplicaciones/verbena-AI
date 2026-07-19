@@ -1,20 +1,560 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../core/constants/credits.dart';
+import '../../../core/router/app_routes.dart';
+import '../../../core/theme/verbena_icons.dart';
 import '../../../core/theme/verbena_theme.dart';
+import '../../../data/models/generation_source.dart';
+import '../../../data/models/template.dart';
+import '../../../data/repositories/credits_repository.dart';
+import '../../../data/repositories/templates_repository.dart';
 
-// TODO(fase C): recrear pixel-perfect la Home variante C (única variante a
-// implementar): wordmark + avatar, tarjeta de créditos teal con badge
-// terracota superpuesto "+N extra", tabs Catálogo/Libertad, grid de
-// plantillas o textarea + chips de ejemplos según el tab activo.
-class HomeScreen extends StatelessWidget {
+/// El handoff traía "esta semana" fijo en la tarjeta de créditos aunque el
+/// plan activo fuera mensual -- bug de contenido, no de diseño. La cadencia
+/// depende del plan real (semanal/mensual); sin plan activo no se muestra
+/// nada, no hay periodo que anunciar.
+String? _cadenceLabel(String? activePlanId) {
+  switch (activePlanId) {
+    case PlanIds.semanal:
+      return 'esta semana';
+    case PlanIds.mensual:
+      return 'este mes';
+    default:
+      return null;
+  }
+}
+
+const _libertadPromptSuggestions = [
+  'Ponle la camiseta de España a mi perro',
+  'Conviértete en superhéroe volando',
+  'Añade un dragón detrás de ti',
+  'Hazte gigante en Times Square',
+  'Ponte un traje de luces',
+];
+
+class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends ConsumerState<HomeScreen> {
+  int _tab = 0;
+  String? _selectedCategoryId;
+  final _libertadController = TextEditingController();
+
+  @override
+  void dispose() {
+    _libertadController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: VerbenaColors.background,
-      body: Center(
-        child: Text('Home', style: VerbenaText.display()),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const _HomeHeader(),
+              const _CreditsCard(),
+              _HomeTabs(
+                active: _tab,
+                onChanged: (i) => setState(() => _tab = i),
+              ),
+              if (_tab == 0)
+                _CatalogTab(
+                  selectedCategoryId: _selectedCategoryId,
+                  onCategorySelected: (id) => setState(() => _selectedCategoryId = id),
+                  onCategoriesLoaded: (id) {
+                    if (_selectedCategoryId == null) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted) setState(() => _selectedCategoryId = id);
+                      });
+                    }
+                  },
+                )
+              else
+                _LibertadTab(controller: _libertadController),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HomeHeader extends StatelessWidget {
+  const _HomeHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text('VERBENA', style: VerbenaText.display(size: 24)),
+          GestureDetector(
+            onTap: () => context.push(AppRoutes.profile),
+            child: Container(
+              width: 36,
+              height: 36,
+              decoration: const BoxDecoration(color: VerbenaColors.teal, shape: BoxShape.circle),
+              alignment: Alignment.center,
+              child: const VerbenaPersonIcon(size: 17),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CreditsCard extends ConsumerWidget {
+  const _CreditsCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final creditsAsync = ref.watch(myCreditsProvider);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+      child: creditsAsync.when(
+        loading: () => const SizedBox(height: 78),
+        error: (err, st) => const SizedBox.shrink(),
+        data: (credits) {
+          return Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                decoration: BoxDecoration(
+                  color: VerbenaColors.teal,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'CRÉDITOS DE TU PLAN',
+                      style: VerbenaText.body(
+                        size: 11,
+                        color: VerbenaColors.background.withValues(alpha: 0.8),
+                        weight: FontWeight.w500,
+                      ).copyWith(letterSpacing: 0.5),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic,
+                      children: [
+                        Text(
+                          '${credits.tierUsed}/${credits.tierTotal}',
+                          style: VerbenaText.display(size: 24, color: VerbenaColors.background),
+                        ),
+                        if (_cadenceLabel(credits.activePlanId) case final label?) ...[
+                          const SizedBox(width: 6),
+                          Text(
+                            label,
+                            style: VerbenaText.body(
+                              size: 13,
+                              color: VerbenaColors.background.withValues(alpha: 0.85),
+                              weight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              if (credits.extraCredits > 0)
+                Positioned(
+                  top: -10,
+                  right: 10,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: VerbenaColors.terracotta,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: VerbenaColors.background, width: 2),
+                    ),
+                    child: Text(
+                      '+${credits.extraCredits} extra',
+                      style: VerbenaText.body(
+                        size: 11.5,
+                        color: VerbenaColors.background,
+                        weight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _HomeTabs extends StatelessWidget {
+  const _HomeTabs({required this.active, required this.onChanged});
+
+  final int active;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
+      child: Container(
+        padding: const EdgeInsets.all(5),
+        decoration: BoxDecoration(
+          color: VerbenaColors.textDark.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          children: [
+            Expanded(child: _TabButton(label: 'Catálogo', active: active == 0, onTap: () => onChanged(0))),
+            const SizedBox(width: 10),
+            Expanded(child: _TabButton(label: 'Libertad', active: active == 1, onTap: () => onChanged(1))),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TabButton extends StatelessWidget {
+  const _TabButton({required this.label, required this.active, required this.onTap});
+
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 11),
+        decoration: BoxDecoration(
+          color: active ? VerbenaColors.teal : Colors.transparent,
+          borderRadius: BorderRadius.circular(11),
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          label.toUpperCase(),
+          style: VerbenaText.display(
+            size: 14,
+            color: active ? VerbenaColors.background : VerbenaColors.textDark,
+            letterSpacing: 0.4,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CatalogTab extends ConsumerWidget {
+  const _CatalogTab({
+    required this.selectedCategoryId,
+    required this.onCategorySelected,
+    required this.onCategoriesLoaded,
+  });
+
+  final String? selectedCategoryId;
+  final ValueChanged<String> onCategorySelected;
+  final ValueChanged<String> onCategoriesLoaded;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final categoriesAsync = ref.watch(templateCategoriesProvider);
+
+    return categoriesAsync.when(
+      loading: () => const Padding(
+        padding: EdgeInsets.all(40),
+        child: Center(child: CircularProgressIndicator()),
+      ),
+      error: (err, st) => Padding(
+        padding: const EdgeInsets.all(20),
+        child: Text('No se pudieron cargar las plantillas.', style: VerbenaText.body()),
+      ),
+      data: (categories) {
+        if (categories.isEmpty) return const SizedBox.shrink();
+        if (selectedCategoryId == null) {
+          onCategoriesLoaded(categories.first.id);
+          return const Padding(
+            padding: EdgeInsets.all(40),
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(
+              height: 40,
+              child: ListView.separated(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 4),
+                scrollDirection: Axis.horizontal,
+                itemCount: categories.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (context, i) {
+                  final category = categories[i];
+                  return _CategoryChip(
+                    category: category,
+                    active: category.id == selectedCategoryId,
+                    onTap: () => onCategorySelected(category.id),
+                  );
+                },
+              ),
+            ),
+            _TemplatesGrid(categoryId: selectedCategoryId!),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _CategoryChip extends StatelessWidget {
+  const _CategoryChip({required this.category, required this.active, required this.onTap});
+
+  final TemplateCategory category;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+            decoration: BoxDecoration(
+              color: active ? VerbenaColors.teal : VerbenaColors.card,
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: active ? VerbenaColors.teal : VerbenaColors.textDark.withValues(alpha: 0.15),
+              ),
+            ),
+            child: Text(
+              category.label,
+              style: VerbenaText.body(
+                size: 13.5,
+                weight: FontWeight.w600,
+                color: active ? VerbenaColors.background : VerbenaColors.textDark,
+              ),
+            ),
+          ),
+          if (category.badgeText != null)
+            Positioned(
+              top: -9,
+              right: -6,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: VerbenaColors.terracotta,
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: VerbenaColors.background, width: 1.5),
+                ),
+                child: Text(
+                  category.badgeText!,
+                  style: VerbenaText.body(
+                    size: 9.5,
+                    weight: FontWeight.w700,
+                    color: VerbenaColors.background,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TemplatesGrid extends ConsumerWidget {
+  const _TemplatesGrid({required this.categoryId});
+
+  final String categoryId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final templatesAsync = ref.watch(templatesByCategoryProvider(categoryId));
+
+    return templatesAsync.when(
+      loading: () => const Padding(
+        padding: EdgeInsets.all(40),
+        child: Center(child: CircularProgressIndicator()),
+      ),
+      error: (err, st) => Padding(
+        padding: const EdgeInsets.all(20),
+        child: Text('No se pudieron cargar las plantillas.', style: VerbenaText.body()),
+      ),
+      data: (templates) {
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final columnWidth = (constraints.maxWidth - 40 - 14) / 2;
+            const estimatedRowHeight = 130 + 6 + 34;
+            final aspectRatio = columnWidth / estimatedRowHeight;
+            return GridView.builder(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                mainAxisSpacing: 14,
+                crossAxisSpacing: 14,
+                childAspectRatio: aspectRatio,
+              ),
+              itemCount: templates.length,
+              itemBuilder: (context, i) => _TemplateCard(template: templates[i]),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _TemplateCard extends ConsumerWidget {
+  const _TemplateCard({required this.template});
+
+  final Template template;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final urlAsync = ref.watch(templateImageUrlProvider(template.imageStoragePath));
+    return GestureDetector(
+      onTap: () => context.push(AppRoutes.photoSelect, extra: CatalogSource(template)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: SizedBox(
+              height: 130,
+              width: double.infinity,
+              child: urlAsync.when(
+                loading: () => Container(color: VerbenaColors.card),
+                error: (err, st) => Container(color: VerbenaColors.card),
+                data: (url) => CachedNetworkImage(
+                  imageUrl: url,
+                  fit: BoxFit.cover,
+                  placeholder: (context, url) => Container(color: VerbenaColors.card),
+                  errorWidget: (context, url, error) => Container(color: VerbenaColors.card),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            template.name,
+            style: VerbenaText.body(size: 13, weight: FontWeight.w600).copyWith(height: 1.25),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LibertadTab extends StatelessWidget {
+  const _LibertadTab({required this.controller});
+
+  final TextEditingController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            height: 36,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: _libertadPromptSuggestions.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              itemBuilder: (context, i) {
+                final suggestion = _libertadPromptSuggestions[i];
+                return GestureDetector(
+                  onTap: () => controller.text = suggestion,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: VerbenaColors.card,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: VerbenaColors.textDark.withValues(alpha: 0.15), width: 1.5),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      suggestion,
+                      style: VerbenaText.body(size: 12.5, weight: FontWeight.w500),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: controller,
+            minLines: 5,
+            maxLines: 8,
+            style: VerbenaText.body(size: 15),
+            decoration: InputDecoration(
+              hintText: 'Describe lo que quieres... ej: ponme a lomos de un toro de cartón piedra',
+              hintStyle: VerbenaText.body(size: 15, color: VerbenaColors.textMuted),
+              filled: true,
+              fillColor: VerbenaColors.card,
+              contentPadding: const EdgeInsets.all(16),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(color: VerbenaColors.textDark.withValues(alpha: 0.18), width: 1.5),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(color: VerbenaColors.textDark.withValues(alpha: 0.18), width: 1.5),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(color: VerbenaColors.teal, width: 1.5),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: controller,
+            builder: (context, value, _) {
+              final prompt = value.text.trim();
+              return SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: prompt.isEmpty
+                      ? null
+                      : () => context.push(AppRoutes.photoSelect, extra: LibertadSource(prompt)),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 15),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    textStyle: VerbenaText.display(size: 15, color: VerbenaColors.background, letterSpacing: 0.4),
+                  ),
+                  child: const Text('CONTINUAR'),
+                ),
+              );
+            },
+          ),
+        ],
       ),
     );
   }

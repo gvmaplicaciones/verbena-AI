@@ -27,8 +27,27 @@ class TemplatesRepository {
         .order('sort_order');
     return rows.map(Template.fromJson).toList();
   }
+
+  /// El bucket `templates` no es público a nivel de bucket (solo vía RLS
+  /// policy de SELECT) -- hace falta URL firmada, `getPublicUrl()` no sirve.
+  Future<String> signedImageUrl(String storagePath) async {
+    return _client.storage.from('templates').createSignedUrl(storagePath, 3600);
+  }
 }
 
 final templatesRepositoryProvider = Provider<TemplatesRepository>((ref) {
   return TemplatesRepository(ref.watch(supabaseClientProvider));
+});
+
+final templateCategoriesProvider = FutureProvider<List<TemplateCategory>>((ref) {
+  return ref.watch(templatesRepositoryProvider).fetchCategories();
+});
+
+final templatesByCategoryProvider =
+    FutureProvider.family<List<Template>, String>((ref, categoryId) {
+  return ref.watch(templatesRepositoryProvider).fetchTemplates(categoryId);
+});
+
+final templateImageUrlProvider = FutureProvider.family<String, String>((ref, storagePath) {
+  return ref.watch(templatesRepositoryProvider).signedImageUrl(storagePath);
 });
