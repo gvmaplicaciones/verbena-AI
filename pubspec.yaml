@@ -41,10 +41,23 @@ dependencies:
 
   crypto: ^3.0.5
 
+  # Persistir el refresh token de la sesión anónima mientras se opera en el
+  # menú de admin oculto (ver data/repositories/admin_repository.dart), para
+  # poder restaurarla aunque la app se cierre a medias.
+  shared_preferences: ^2.5.5
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.3
 
 flutter:
   uses-material-design: true
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/app_icon.png"
+  adaptive_icon_background: "#3D5C52"
+  adaptive_icon_foreground: "assets/icon/app_icon_foreground.png"
