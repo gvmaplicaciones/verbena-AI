@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -72,13 +74,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 _CatalogTab(
                   selectedCategoryId: _selectedCategoryId,
                   onCategorySelected: (id) => setState(() => _selectedCategoryId = id),
-                  onCategoriesLoaded: (id) {
-                    if (_selectedCategoryId == null) {
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (mounted) setState(() => _selectedCategoryId = id);
-                      });
-                    }
-                  },
                 )
               else
                 _LibertadTab(controller: _libertadController),
@@ -90,8 +85,37 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 }
 
-class _HomeHeader extends StatelessWidget {
+class _HomeHeader extends StatefulWidget {
   const _HomeHeader();
+
+  @override
+  State<_HomeHeader> createState() => _HomeHeaderState();
+}
+
+class _HomeHeaderState extends State<_HomeHeader> {
+  int _avatarLongPressCount = 0;
+  Timer? _resetTimer;
+
+  @override
+  void dispose() {
+    _resetTimer?.cancel();
+    super.dispose();
+  }
+
+  /// Gesto oculto sin ningún botón visible: 5 pulsaciones largas seguidas
+  /// sobre el avatar (contador reiniciado tras 2s de inactividad) abren el
+  /// login del menú de admin -- ver AppRoutes.adminLogin y
+  /// data/repositories/admin_repository.dart.
+  void _onAvatarLongPress() {
+    _resetTimer?.cancel();
+    _avatarLongPressCount++;
+    if (_avatarLongPressCount >= 5) {
+      _avatarLongPressCount = 0;
+      context.push(AppRoutes.adminLogin);
+      return;
+    }
+    _resetTimer = Timer(const Duration(seconds: 2), () => _avatarLongPressCount = 0);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -103,6 +127,7 @@ class _HomeHeader extends StatelessWidget {
           Text('VERBENA', style: VerbenaText.display(size: 24)),
           GestureDetector(
             onTap: () => context.push(AppRoutes.profile),
+            onLongPress: _onAvatarLongPress,
             child: Container(
               width: 36,
               height: 36,
@@ -267,117 +292,105 @@ class _CatalogTab extends ConsumerWidget {
   const _CatalogTab({
     required this.selectedCategoryId,
     required this.onCategorySelected,
-    required this.onCategoriesLoaded,
   });
 
   final String? selectedCategoryId;
-  final ValueChanged<String> onCategorySelected;
-  final ValueChanged<String> onCategoriesLoaded;
+  final ValueChanged<String?> onCategorySelected;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final categoriesAsync = ref.watch(templateCategoriesProvider);
 
-    return categoriesAsync.when(
-      loading: () => const Padding(
-        padding: EdgeInsets.all(40),
-        child: Center(child: CircularProgressIndicator()),
-      ),
-      error: (err, st) => Padding(
-        padding: const EdgeInsets.all(20),
-        child: Text('No se pudieron cargar las plantillas.', style: VerbenaText.body()),
-      ),
-      data: (categories) {
-        if (categories.isEmpty) return const SizedBox.shrink();
-        if (selectedCategoryId == null) {
-          onCategoriesLoaded(categories.first.id);
-          return const Padding(
-            padding: EdgeInsets.all(40),
-            child: Center(child: CircularProgressIndicator()),
-          );
-        }
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            SizedBox(
-              height: 40,
-              child: ListView.separated(
-                padding: const EdgeInsets.fromLTRB(20, 18, 20, 4),
-                scrollDirection: Axis.horizontal,
-                itemCount: categories.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 8),
-                itemBuilder: (context, i) {
-                  final category = categories[i];
-                  return _CategoryChip(
-                    category: category,
-                    active: category.id == selectedCategoryId,
-                    onTap: () => onCategorySelected(category.id),
-                  );
-                },
-              ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 4),
+          child: categoriesAsync.when(
+            loading: () => const SizedBox(height: 48),
+            error: (err, st) => Text('No se pudieron cargar las categorías.', style: VerbenaText.body()),
+            data: (categories) => _CategoryDropdown(
+              categories: categories,
+              selectedCategoryId: selectedCategoryId,
+              onChanged: onCategorySelected,
             ),
-            _TemplatesGrid(categoryId: selectedCategoryId!),
-          ],
-        );
-      },
+          ),
+        ),
+        _TemplatesGrid(categoryId: selectedCategoryId),
+      ],
     );
   }
 }
 
-class _CategoryChip extends StatelessWidget {
-  const _CategoryChip({required this.category, required this.active, required this.onTap});
+/// Selector desplegable con "TODOS" (value null) por delante de las
+/// categorías reales -- antes la fila de chips no dejaba claro qué
+/// categorías existían ni había forma de ver todas las plantillas a la vez.
+class _CategoryDropdown extends StatelessWidget {
+  const _CategoryDropdown({
+    required this.categories,
+    required this.selectedCategoryId,
+    required this.onChanged,
+  });
 
-  final TemplateCategory category;
-  final bool active;
-  final VoidCallback onTap;
+  final List<TemplateCategory> categories;
+  final String? selectedCategoryId;
+  final ValueChanged<String?> onChanged;
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-            decoration: BoxDecoration(
-              color: active ? VerbenaColors.teal : VerbenaColors.card,
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(
-                color: active ? VerbenaColors.teal : VerbenaColors.textDark.withValues(alpha: 0.15),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: VerbenaColors.card,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: VerbenaColors.textDark.withValues(alpha: 0.15), width: 1.5),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String?>(
+          value: selectedCategoryId,
+          isExpanded: true,
+          icon: const Icon(Icons.keyboard_arrow_down_rounded, color: VerbenaColors.textDark),
+          borderRadius: BorderRadius.circular(14),
+          dropdownColor: VerbenaColors.card,
+          items: [
+            DropdownMenuItem<String?>(
+              value: null,
+              child: Text(
+                'TODOS',
+                style: VerbenaText.body(size: 14.5, weight: FontWeight.w700, color: VerbenaColors.textDark),
               ),
             ),
-            child: Text(
-              category.label,
-              style: VerbenaText.body(
-                size: 13.5,
-                weight: FontWeight.w600,
-                color: active ? VerbenaColors.background : VerbenaColors.textDark,
-              ),
-            ),
-          ),
-          if (category.badgeText != null)
-            Positioned(
-              top: -9,
-              right: -6,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: VerbenaColors.terracotta,
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: VerbenaColors.background, width: 1.5),
+            ...categories.map(
+              (category) => DropdownMenuItem<String?>(
+                value: category.id,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      category.label,
+                      style: VerbenaText.body(size: 14.5, weight: FontWeight.w600, color: VerbenaColors.textDark),
+                    ),
+                    if (category.badgeText != null) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: VerbenaColors.terracotta,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          category.badgeText!,
+                          style: VerbenaText.body(size: 9.5, weight: FontWeight.w700, color: VerbenaColors.background),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
-                child: Text(
-                  category.badgeText!,
-                  style: VerbenaText.body(
-                    size: 9.5,
-                    weight: FontWeight.w700,
-                    color: VerbenaColors.background,
-                  ),
-                ),
               ),
             ),
-        ],
+          ],
+          onChanged: onChanged,
+        ),
       ),
     );
   }
@@ -386,7 +399,7 @@ class _CategoryChip extends StatelessWidget {
 class _TemplatesGrid extends ConsumerWidget {
   const _TemplatesGrid({required this.categoryId});
 
-  final String categoryId;
+  final String? categoryId;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -402,6 +415,14 @@ class _TemplatesGrid extends ConsumerWidget {
         child: Text('No se pudieron cargar las plantillas.', style: VerbenaText.body()),
       ),
       data: (templates) {
+        if (templates.isEmpty) {
+          return Padding(
+            padding: const EdgeInsets.all(40),
+            child: Center(
+              child: Text('No hay plantillas en esta categoría.', style: VerbenaText.body()),
+            ),
+          );
+        }
         return LayoutBuilder(
           builder: (context, constraints) {
             final columnWidth = (constraints.maxWidth - 40 - 14) / 2;

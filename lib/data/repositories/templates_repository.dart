@@ -18,12 +18,10 @@ class TemplatesRepository {
     return rows.map(TemplateCategory.fromJson).toList();
   }
 
-  Future<List<Template>> fetchTemplates(String categoryId) async {
-    final rows = await _client
-        .from('templates')
-        .select()
-        .eq('category_id', categoryId)
-        .eq('is_active', true)
+  /// `categoryId` null trae todas las plantillas activas (opción "TODOS").
+  Future<List<Template>> fetchTemplates(String? categoryId) async {
+    final builder = _client.from('templates').select().eq('is_active', true);
+    final rows = await (categoryId != null ? builder.eq('category_id', categoryId) : builder)
         .order('sort_order');
     return rows.map(Template.fromJson).toList();
   }
@@ -44,7 +42,7 @@ final templateCategoriesProvider = FutureProvider<List<TemplateCategory>>((ref) 
 });
 
 final templatesByCategoryProvider =
-    FutureProvider.family<List<Template>, String>((ref, categoryId) {
+    FutureProvider.family<List<Template>, String?>((ref, categoryId) {
   return ref.watch(templatesRepositoryProvider).fetchTemplates(categoryId);
 });
 

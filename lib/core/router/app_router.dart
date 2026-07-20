@@ -4,6 +4,9 @@ import 'package:go_router/go_router.dart';
 import '../../data/models/generation_source.dart';
 import '../../data/models/processing_args.dart';
 import '../../data/models/result_args.dart';
+import '../../features/admin/presentation/admin_login_screen.dart';
+import '../../features/admin/presentation/admin_new_template_screen.dart';
+import '../../features/admin/presentation/admin_templates_screen.dart';
 import '../../features/home/presentation/home_screen.dart';
 import '../../features/onboarding/presentation/onboarding_screen.dart';
 import '../../features/paywall/presentation/paywall_screen.dart';
@@ -14,12 +17,14 @@ import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/result/presentation/result_screen.dart';
 import 'app_routes.dart';
 
-// TODO(fase C): añadir redirect basado en si ya se completó el onboarding
-// (SharedPreferences/local flag) — auth ya no es la puerta de entrada porque
-// arrancamos con Supabase Auth anónimo, no con login.
+// Sobreescrito en main.dart con el valor real de onboardingCompletedPrefsKey
+// leído de SharedPreferences antes de runApp -- por defecto arranca en
+// onboarding si nadie lo overridea (tests, etc.).
+final initialLocationProvider = Provider<String>((ref) => AppRoutes.onboarding);
+
 final appRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
-    initialLocation: AppRoutes.onboarding,
+    initialLocation: ref.watch(initialLocationProvider),
     routes: [
       GoRoute(
         path: AppRoutes.onboarding,
@@ -52,6 +57,18 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.privacyPolicy,
         builder: (context, state) => const PrivacyPolicyScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.adminLogin,
+        builder: (context, state) => const AdminLoginScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.adminTemplates,
+        builder: (context, state) => const AdminTemplatesScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.adminNewTemplate,
+        builder: (context, state) => const AdminNewTemplateScreen(),
       ),
     ],
   );

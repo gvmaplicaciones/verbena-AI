@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/router/app_routes.dart';
 import '../../../core/theme/verbena_icons.dart';
@@ -50,8 +51,11 @@ class OnboardingScreen extends StatefulWidget {
 class _OnboardingScreenState extends State<OnboardingScreen> {
   int _step = 0;
 
-  void _next() {
+  Future<void> _next() async {
     if (_step == _slides.length - 1) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(onboardingCompletedPrefsKey, true);
+      if (!mounted) return;
       context.go(AppRoutes.home);
       return;
     }

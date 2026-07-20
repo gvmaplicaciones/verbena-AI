@@ -6,10 +6,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:posthog_flutter/posthog_flutter.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'app.dart';
 import 'core/config/env.dart';
+import 'core/router/app_router.dart' show initialLocationProvider;
+import 'core/router/app_routes.dart' show AppRoutes, onboardingCompletedPrefsKey;
+import 'data/repositories/admin_repository.dart' show savedAnonRefreshTokenPrefsKey;
 
 // A diferencia de las llamadas nativas (Sentry, RevenueCat), que sí respetan
 // network_security_config.xml, el HttpClient de dart:io usa su propio store
@@ -43,9 +47,23 @@ Future<void> main() async {
   // restaurar en otro dispositivo -- RevenueCat asocia la compra al mismo
   // app_user_id anónimo, así que la restauración funciona sin login previo.
   final auth = Supabase.instance.client.auth;
-  if (auth.currentSession == null) {
+
+  // Si la app se cerró a medio "modo admin" (ver admin_repository.dart) sin
+  // pasar por "Salir", quedaría persistida la sesión real del admin en vez
+  // de la anónima -- se detecta y se restaura aquí para no arrancar nunca
+  // como admin por sorpresa ni mezclar sus créditos/generaciones con los del
+  // usuario real.
+  final prefs = await SharedPreferences.getInstance();
+  final savedAnonRefreshToken = prefs.getString(savedAnonRefreshTokenPrefsKey);
+  if (savedAnonRefreshToken != null && auth.currentUser?.isAnonymous == false) {
+    await auth.setSession(savedAnonRefreshToken);
+    await prefs.remove(savedAnonRefreshTokenPrefsKey);
+  } else if (auth.currentSession == null) {
     await auth.signInAnonymously();
   }
+
+  final onboardingCompleted = prefs.getBool(onboardingCompletedPrefsKey) ?? false;
+  final initialLocation = onboardingCompleted ? AppRoutes.home : AppRoutes.onboarding;
 
   await Purchases.setLogLevel(LogLevel.info);
   // appUserID = uid anónimo de Supabase: así event.app_user_id en el webhook
@@ -65,6 +83,9 @@ Future<void> main() async {
       options.dsn = Env.sentryDsn;
       options.tracesSampleRate = 1.0;
     },
-    appRunner: () => runApp(const ProviderScope(child: VerbenaApp())),
+    appRunner: () => runApp(ProviderScope(
+      overrides: [initialLocationProvider.overrideWithValue(initialLocation)],
+      child: const VerbenaApp(),
+    )),
   );
 }
