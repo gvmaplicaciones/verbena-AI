@@ -1,6 +1,11 @@
 import { supabaseAdmin } from "./supabase.ts";
 import { encodeBase64 } from "./bytes.ts";
 
+// Backstop de servidor para "sesión vigente mientras la app esté abierta, o
+// 2-4h tras cerrarla" (el cliente no tiene por qué cerrar la sesión al
+// segundo; esto es solo el TTL máximo antes de forzar re-verificación).
+export const SESSION_TTL_MS = 4 * 60 * 60 * 1000;
+
 /** Descarga un objeto privado y lo devuelve como data URI, listo para mandarlo a Replicate. */
 export async function downloadAsDataUri(
   admin: ReturnType<typeof supabaseAdmin>,
@@ -64,4 +69,38 @@ export async function resolveActiveSession(
   }
 
   return { verifiedPhotoId: photo.id, storagePath: photo.storage_path };
+}
+
+/**
+ * Devuelve la photo_session activa de una verified_photo, o crea una nueva
+ * si no hay ninguna vigente. No comprueba que la foto esté aprobada --
+ * eso ya lo tiene que haber hecho el caller antes de llamar aquí.
+ */
+export async function ensureActiveSession(
+  admin: ReturnType<typeof supabaseAdmin>,
+  userId: string,
+  verifiedPhotoId: string,
+): Promise<{ id: string }> {
+  const { data: active } = await admin
+    .from("photo_sessions")
+    .select("id, expires_at")
+    .eq("user_id", userId)
+    .eq("verified_photo_id", verifiedPhotoId)
+    .eq("status", "active")
+    .gt("expires_at", new Date().toISOString())
+    .maybeSingle();
+
+  if (active) return active;
+
+  const { data: created, error } = await admin
+    .from("photo_sessions")
+    .insert({
+      user_id: userId,
+      verified_photo_id: verifiedPhotoId,
+      expires_at: new Date(Date.now() + SESSION_TTL_MS).toISOString(),
+    })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return created;
 }

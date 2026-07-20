@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 
 import '../../../core/router/app_routes.dart';
 import '../../../core/theme/verbena_theme.dart';
@@ -69,6 +71,15 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> {
             );
         if (result.status == VerifiedPhotoStatus.approved) {
           photoSessionId = result.photoSessionId;
+          if (result.hasGlassesWarning) {
+            if (!mounted) return;
+            final keepGoing = await _confirmGlassesWarning();
+            if (!mounted) return;
+            if (!keepGoing) {
+              context.pop();
+              return;
+            }
+          }
         } else if (result.status == VerifiedPhotoStatus.rejected) {
           _fail(_ProcessingError(_ErrorKind.rejectedPhoto, result.reason));
           return;
@@ -76,7 +87,9 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> {
           _fail(const _ProcessingError(_ErrorKind.appealedPhoto));
           return;
         }
-      } catch (_) {
+      } catch (e, st) {
+        developer.log('verifyPhoto failed', name: 'ProcessingScreen', error: e, stackTrace: st);
+        unawaited(Sentry.captureException(e, stackTrace: st, hint: Hint.withMap({'stage': 'verifyPhoto'})));
         _fail(const _ProcessingError(_ErrorKind.generic));
         return;
       }
@@ -121,7 +134,9 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> {
     } on InsufficientCreditsException {
       _progressTimer?.cancel();
       _fail(const _ProcessingError(_ErrorKind.insufficientCredits));
-    } catch (_) {
+    } catch (e, st) {
+      developer.log('generate failed', name: 'ProcessingScreen', error: e, stackTrace: st);
+      unawaited(Sentry.captureException(e, stackTrace: st, hint: Hint.withMap({'stage': 'generate'})));
       _progressTimer?.cancel();
       _fail(const _ProcessingError(_ErrorKind.generic));
     }
@@ -137,6 +152,37 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> {
         if (_progressPct < 92) _progressPct += 4;
       });
     });
+  }
+
+  // Warning no bloqueante de verify-photo (glasses_detected) -- la foto ya
+  // está aprobada, esto solo deja elegir antes de gastar el crédito de
+  // generación. true = seguir con esta foto, false = volver a PhotoSelect.
+  Future<bool> _confirmGlassesWarning() async {
+    final keepGoing = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: VerbenaColors.card,
+        title: Text('Hemos detectado gafas', style: VerbenaText.display(size: 17)),
+        content: Text(
+          'El resultado puede no quedar tan bien con gafas puestas. ¿Quieres continuar o cambiar de foto?',
+          style: VerbenaText.body(size: 13.5, color: VerbenaColors.textMuted),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text('Cambiar de foto', style: VerbenaText.body(size: 13.5, weight: FontWeight.w600)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(
+              'Continuar',
+              style: VerbenaText.body(size: 13.5, weight: FontWeight.w700, color: VerbenaColors.teal),
+            ),
+          ),
+        ],
+      ),
+    );
+    return keepGoing ?? false;
   }
 
   void _fail(_ProcessingError error) {

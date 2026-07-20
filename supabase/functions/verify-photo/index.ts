@@ -13,17 +13,15 @@
 //           header Content-Type: image/jpeg | image/png | image/webp
 //
 // Response: { status: 'approved' | 'rejected' | 'appealed',
-//             verifiedPhotoId, photoSessionId?, reason? }
+//             verifiedPhotoId, photoSessionId?, reason?, warning? }
+//           warning: 'glasses_detected' -- no bloquea, la foto queda
+//           aprobada igual; el cliente decide si avisar antes de generar.
 
 import { corsHeaders } from "../_shared/cors.ts";
 import { getAuthedUser, supabaseAdmin } from "../_shared/supabase.ts";
-import { runContentFilter } from "../_shared/replicate.ts";
+import { runContentFilter, runGlassesCheck } from "../_shared/replicate.ts";
 import { encodeBase64 } from "../_shared/bytes.ts";
-
-// Backstop de servidor para "sesión vigente mientras la app esté abierta, o
-// 2-4h tras cerrarla" (el cliente no tiene por qué cerrar la sesión al
-// segundo; esto es solo el TTL máximo antes de forzar re-verificación).
-const SESSION_TTL_MS = 4 * 60 * 60 * 1000;
+import { ensureActiveSession, SESSION_TTL_MS } from "../_shared/storage.ts";
 
 const EXT_BY_MIME: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -65,7 +63,7 @@ Deno.serve(async (req) => {
   try {
     const { data: existing, error: existingErr } = await admin
       .from("verified_photos")
-      .select("id, status, storage_path")
+      .select("id, status, storage_path, glasses_detected")
       .eq("user_id", user.id)
       .eq("file_hash", fileHash)
       .maybeSingle();
@@ -92,7 +90,7 @@ Deno.serve(async (req) => {
 async function handleExisting(
   admin: ReturnType<typeof supabaseAdmin>,
   userId: string,
-  existing: { id: string; status: string },
+  existing: { id: string; status: string; glasses_detected: boolean },
 ) {
   if (existing.status === "rejected") {
     return json({
@@ -108,36 +106,12 @@ async function handleExisting(
 
   // approved -> reutiliza verificación, asegura una photo_session viva
   const session = await ensureActiveSession(admin, userId, existing.id);
-  return json({ status: "approved", verifiedPhotoId: existing.id, photoSessionId: session.id });
-}
-
-async function ensureActiveSession(
-  admin: ReturnType<typeof supabaseAdmin>,
-  userId: string,
-  verifiedPhotoId: string,
-) {
-  const { data: active } = await admin
-    .from("photo_sessions")
-    .select("id, expires_at")
-    .eq("user_id", userId)
-    .eq("verified_photo_id", verifiedPhotoId)
-    .eq("status", "active")
-    .gt("expires_at", new Date().toISOString())
-    .maybeSingle();
-
-  if (active) return active;
-
-  const { data: created, error } = await admin
-    .from("photo_sessions")
-    .insert({
-      user_id: userId,
-      verified_photo_id: verifiedPhotoId,
-      expires_at: new Date(Date.now() + SESSION_TTL_MS).toISOString(),
-    })
-    .select("id")
-    .single();
-  if (error) throw error;
-  return created;
+  return json({
+    status: "approved",
+    verifiedPhotoId: existing.id,
+    photoSessionId: session.id,
+    warning: existing.glasses_detected ? "glasses_detected" : undefined,
+  });
 }
 
 async function verifyNewPhoto(
@@ -192,6 +166,13 @@ async function verifyNewPhoto(
     .upload(storagePath, bytes, { contentType, upsert: true });
   if (uploadErr) throw uploadErr;
 
+  // Warning no bloqueante, no afecta a la aprobación -- si falla la
+  // predicción no se debe tumbar toda la verificación por esto.
+  const glassesDetected = await runGlassesCheck(dataUri).catch((err) => {
+    console.error("runGlassesCheck error", err);
+    return false;
+  });
+
   const approvedPayload = {
     user_id: userId,
     file_hash: fileHash,
@@ -199,6 +180,7 @@ async function verifyNewPhoto(
     is_persisted: isSubscribed,
     status: "approved",
     moderation_result: result.raw,
+    glasses_detected: glassesDetected,
     expires_at: isSubscribed ? null : new Date(Date.now() + SESSION_TTL_MS).toISOString(),
   };
   const { data: verifiedPhoto, error: insertErr } = upsertId
@@ -212,6 +194,7 @@ async function verifyNewPhoto(
     status: "approved",
     verifiedPhotoId: verifiedPhoto.id,
     photoSessionId: session.id,
+    warning: glassesDetected ? "glasses_detected" : undefined,
   });
 }
 

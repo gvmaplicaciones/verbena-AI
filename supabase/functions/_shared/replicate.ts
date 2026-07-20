@@ -1,10 +1,11 @@
 const REPLICATE_API_TOKEN = Deno.env.get("REPLICATE_API_TOKEN")!;
 
-// Identificador confirmado en Replicate. Se deja configurable por env var
-// para no tener que redeploy-ear si el owner cambia el slug del modelo.
-const CONTENT_FILTER_MODEL =
-  Deno.env.get("REPLICATE_CONTENT_FILTER_MODEL") ??
-  "lucataco/flux-content-filter";
+// Deployment dedicado (min_instances=0, L40S) creado para sacar
+// flux-content-filter de la cola pública compartida de Replicate -- mismo
+// modelo, instancia propia. "owner/deployment-name", nunca "owner/model".
+const CONTENT_FILTER_DEPLOYMENT =
+  Deno.env.get("REPLICATE_CONTENT_FILTER_DEPLOYMENT") ??
+  "adlocalia/content-verbenai";
 
 // cdingram/face-swap: modo Catálogo, cara del usuario sobre la escena de la
 // plantilla (confirmado con output real: input_image=plantilla,
@@ -25,6 +26,13 @@ const TEXT_TO_IMAGE_MODELS: Record<string, string> = {
   "flux-1.1-pro": Deno.env.get("REPLICATE_FLUX_PRO_MODEL") ?? "black-forest-labs/flux-1.1-pro",
   "flux-dev": Deno.env.get("REPLICATE_FLUX_DEV_MODEL") ?? "black-forest-labs/flux-dev",
 };
+// VLM ligero para el warning no bloqueante de gafas (el face swap da peor
+// resultado si la foto del usuario lleva gafas y la plantilla no). No es
+// modelo oficial de Replicate -- pinneado por hash confirmado con una
+// predicción real (ver runGlassesCheck), igual que FACE_SWAP_MODEL.
+const GLASSES_MODEL =
+  Deno.env.get("REPLICATE_GLASSES_MODEL") ??
+  "lucataco/moondream2:72ccb656353c348c1385df54b237eeb7bfa874bf11486cf0b9473e691b662d31";
 
 export interface ContentFilterResult {
   passed: boolean;
@@ -50,29 +58,53 @@ export async function runContentFilter(
   const input: Record<string, unknown> = { image: imageDataUri };
   if (promptText) input.prompt = promptText;
 
-  // Espera síncrona hasta 30s -- la moderación es rápida y barata ($0,0042);
-  // si no da tiempo, cae a "processing" y se resuelve por polling.
-  const prediction = await runPrediction(CONTENT_FILTER_MODEL, input, 30);
+  // Espera síncrona hasta 60s (máximo que admite Replicate) -- la cuenta
+  // tiene poco crédito y Replicate a veces mete la predicción en cola varios
+  // minutos antes de arrancarla, así que conviene apurar el máximo aquí y
+  // dejar el resto del margen al polling en pollPrediction().
+  const prediction = await runDeploymentPrediction(CONTENT_FILTER_DEPLOYMENT, input, 60);
 
-  // Forma de salida exacta pendiente de confirmar contra el modelo real;
-  // se asume un objeto con flags booleanas de NSFW / figura pública / copyright.
+  // Forma de salida confirmada con una llamada real de prueba (ver commit):
+  // nsfw_detected / public_figures / copyright_concerns, no nsfw /
+  // public_figure / copyright como se asumía antes -- con los nombres viejos
+  // `flagged` daba siempre false y el filtro nunca rechazaba nada.
   const output = prediction.output as
-    | { nsfw?: boolean; public_figure?: boolean; copyright?: boolean }
+    | { nsfw_detected?: boolean; public_figures?: boolean; copyright_concerns?: boolean }
     | undefined;
 
-  const flagged = !!(output?.nsfw || output?.public_figure || output?.copyright);
+  const flagged = !!(output?.nsfw_detected || output?.public_figures || output?.copyright_concerns);
 
   return {
     passed: !flagged,
     raw: prediction.output,
     reason: flagged
       ? [
-          output?.nsfw && "contenido NSFW",
-          output?.public_figure && "figura pública detectada",
-          output?.copyright && "posible infracción de copyright",
+          output?.nsfw_detected && "contenido NSFW",
+          output?.public_figures && "figura pública detectada",
+          output?.copyright_concerns && "posible infracción de copyright",
         ].filter(Boolean).join(", ")
       : undefined,
   };
+}
+
+/**
+ * Warning no bloqueante: ¿la foto del usuario lleva gafas? Confirmado con
+ * una predicción real que moondream2 responde "Yes"/"No" de forma fiable a
+ * esta pregunta directa (~0.15-0.5s, coste insignificante frente al face
+ * swap). No afecta a `passed` de runContentFilter -- se llama aparte, solo
+ * sobre fotos ya aprobadas.
+ */
+export async function runGlassesCheck(imageDataUri: string): Promise<boolean> {
+  const prediction = await runPrediction(GLASSES_MODEL, {
+    image: imageDataUri,
+    prompt: "Is this person wearing glasses/eyewear? Answer with just yes or no.",
+  }, 30);
+
+  // El modelo devuelve el texto troceado en tokens (array de strings) en vez
+  // de un string único -- se concatena antes de mirar si empieza por "yes".
+  const output = prediction.output;
+  const text = (Array.isArray(output) ? output.join("") : String(output ?? "")).trim().toLowerCase();
+  return text.startsWith("yes");
 }
 
 /** Modo Catálogo: coloca la cara de `userPhotoDataUri` sobre la escena de `templateDataUri`. */
@@ -143,6 +175,39 @@ interface Prediction {
   error: unknown;
 }
 
+// Reintento SOLO para saturación de Replicate (429 -- la cuenta con poco
+// crédito la sufre a menudo, ver memoria de proyecto). Cualquier otro fallo
+// (input inválido, modelo caído, timeout de polling) se propaga tal cual en
+// el primer intento -- no hay nada que un reintento arregle ahí y enmascarar
+// el error real sería peor.
+class ReplicateRateLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ReplicateRateLimitError";
+  }
+}
+
+// Techo bajo a propósito: la petición que se reintenta (crear predicción o
+// consultar su estado) responde rápido incluso cuando Replicate está
+// saturado, así que 3 reintentos + backoff no deja al usuario esperando
+// mucho más en la pantalla de Processing. El backoff real (~1s/2s/4s) casi
+// nunca llega a agotar el presupuesto de 20s.
+const RATE_LIMIT_MAX_RETRIES = 3;
+const RATE_LIMIT_BASE_DELAY_MS = 1000;
+const RATE_LIMIT_BUDGET_MS = 20_000;
+
+// Backoff exponencial (~1s, ~2s, ~4s...) con jitter del 75%-125% para que
+// varias llamadas en curso en paralelo (p.ej. content-filter y
+// glasses-check en verify-photo) no reintenten todas en el mismo instante.
+function backoffDelayMs(attempt: number): number {
+  const base = RATE_LIMIT_BASE_DELAY_MS * 2 ** attempt;
+  return base * (0.75 + Math.random() * 0.5);
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function runPrediction(
   model: string,
   input: Record<string, unknown>,
@@ -157,7 +222,55 @@ async function runPrediction(
     ? "https://api.replicate.com/v1/predictions"
     : `https://api.replicate.com/v1/models/${ownerName}/predictions`;
   const body = versionHash ? { version: versionHash, input } : { input };
+  return createAndAwaitPrediction(url, body, waitSeconds, model);
+}
 
+/**
+ * Deployment dedicado de Replicate ("owner/deployment-name") en vez del
+ * modelo público -- misma respuesta, pero corre en la instancia propia del
+ * deployment en lugar de la cola pública compartida. La versión del modelo
+ * la fija el deployment, no se manda en el body.
+ */
+async function runDeploymentPrediction(
+  deployment: string,
+  input: Record<string, unknown>,
+  waitSeconds: number,
+): Promise<Prediction> {
+  const url = `https://api.replicate.com/v1/deployments/${deployment}/predictions`;
+  return createAndAwaitPrediction(url, { input }, waitSeconds, `deployment:${deployment}`);
+}
+
+async function createAndAwaitPrediction(
+  url: string,
+  body: Record<string, unknown>,
+  waitSeconds: number,
+  label: string,
+): Promise<Prediction> {
+  // La creación aún no existe en Replicate si nos da 429 aquí, así que
+  // reintentar desde cero es seguro -- no hay predicción a medias ni coste
+  // ya incurrido.
+  let prediction: Prediction = await withRateLimitRetry(
+    () => createPrediction(url, body, waitSeconds, label),
+    `crear predicción (${label})`,
+  );
+
+  if (prediction.status !== "succeeded" && prediction.status !== "failed") {
+    prediction = await pollPrediction(prediction.id, label);
+  }
+
+  if (prediction.status === "failed") {
+    throw new Error(`Replicate prediction failed (${label}): ${JSON.stringify(prediction.error)}`);
+  }
+
+  return prediction;
+}
+
+async function createPrediction(
+  url: string,
+  body: Record<string, unknown>,
+  waitSeconds: number,
+  model: string,
+): Promise<Prediction> {
   const res = await fetch(url, {
     method: "POST",
     headers: {
@@ -168,34 +281,70 @@ async function runPrediction(
     body: JSON.stringify(body),
   });
 
+  if (res.status === 429) {
+    throw new ReplicateRateLimitError(`Replicate rate limited creating prediction (${model})`);
+  }
   if (!res.ok) {
     throw new Error(`Replicate request failed (${model}): ${res.status} ${await res.text()}`);
   }
 
-  let prediction: Prediction = await res.json();
-
-  if (prediction.status !== "succeeded" && prediction.status !== "failed") {
-    prediction = await pollPrediction(prediction.id);
-  }
-
-  if (prediction.status === "failed") {
-    throw new Error(`Replicate prediction failed (${model}): ${JSON.stringify(prediction.error)}`);
-  }
-
-  return prediction;
+  return res.json();
 }
 
-async function pollPrediction(id: string, timeoutMs = 60_000): Promise<Prediction> {
+/** Reintenta `fn` solo si falla con ReplicateRateLimitError -- cualquier otro error se propaga sin tocar. */
+async function withRateLimitRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
+  const startedAt = Date.now();
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (!(err instanceof ReplicateRateLimitError)) throw err;
+      if (attempt >= RATE_LIMIT_MAX_RETRIES || Date.now() - startedAt >= RATE_LIMIT_BUDGET_MS) {
+        throw err;
+      }
+      const delay = backoffDelayMs(attempt);
+      console.warn(`${label}: saturado, reintento ${attempt + 1}/${RATE_LIMIT_MAX_RETRIES} en ${Math.round(delay)}ms`);
+      await sleep(delay);
+    }
+  }
+}
+
+// 120s en vez de 60s -- crédito bajo en la cuenta de Replicate mete las
+// predicciones en cola varios minutos antes de arrancarlas de forma
+// intermitente; con esto el presupuesto total (wait síncrono + polling)
+// pasa de ~90-120s a ~180s.
+async function pollPrediction(id: string, model: string, timeoutMs = 120_000): Promise<Prediction> {
   const started = Date.now();
+  let rateLimitAttempt = 0;
   while (Date.now() - started < timeoutMs) {
     const res = await fetch(`https://api.replicate.com/v1/predictions/${id}`, {
       headers: { Authorization: `Bearer ${REPLICATE_API_TOKEN}` },
     });
+
+    if (res.status === 429) {
+      if (rateLimitAttempt >= RATE_LIMIT_MAX_RETRIES || Date.now() - started >= RATE_LIMIT_BUDGET_MS) {
+        throw new ReplicateRateLimitError(`Replicate rate limited polling prediction ${id} (${model})`);
+      }
+      const delay = backoffDelayMs(rateLimitAttempt);
+      console.warn(
+        `poll ${model}: saturado, reintento ${rateLimitAttempt + 1}/${RATE_LIMIT_MAX_RETRIES} en ${Math.round(delay)}ms`,
+      );
+      rateLimitAttempt++;
+      await sleep(delay);
+      continue;
+    }
+    if (!res.ok) {
+      throw new Error(`Replicate poll failed (${model}): ${res.status} ${await res.text()}`);
+    }
+
     const prediction: Prediction = await res.json();
     if (prediction.status === "succeeded" || prediction.status === "failed") {
       return prediction;
     }
-    await new Promise((r) => setTimeout(r, 1000));
+    // Reset: el backoff solo debe escalar mientras el 429 se repite seguido,
+    // no acumularse durante un polling largo pero sano.
+    rateLimitAttempt = 0;
+    await sleep(1000);
   }
   throw new Error(`Replicate prediction ${id} timed out`);
 }

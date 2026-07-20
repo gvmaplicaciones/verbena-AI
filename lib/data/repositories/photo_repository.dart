@@ -55,14 +55,23 @@ class PhotoRepository {
     return rows.map(VerifiedPhotoSummary.fromJson).toList();
   }
 
-  /// RLS permite al usuario descargar sus propios objetos de
-  /// `verified-photos` directamente (ver storage policies) -- no hace falta
-  /// pasar por una Edge Function para reobtener los bytes de una foto ya
-  /// verificada. Se re-postean a verify-photo para conseguir un
-  /// photoSessionId fresco: el hash coincide, así que es un hit de caché
-  /// barato, sin volver a pasar por el modelo de moderación.
-  Future<Uint8List> downloadBytes(String storagePath) {
-    return _client.storage.from('verified-photos').download(storagePath);
+  /// Da un photoSessionId fresco para una foto ya aprobada y guardada
+  /// (`is_persisted`), sin resubir bytes ni volver a pasar por moderación --
+  /// usado por "Usa una foto reciente" en PhotoSelect para saltarse la
+  /// verificación por completo.
+  Future<String> ensurePhotoSession(String verifiedPhotoId) async {
+    final response = await _client.functions.invoke(
+      'ensure-photo-session',
+      body: {'verifiedPhotoId': verifiedPhotoId},
+    );
+
+    if (response.status != 200) {
+      final data = response.data;
+      final message = data is Map ? data['error']?.toString() : null;
+      throw PhotoVerificationException(message ?? 'ensure-photo-session failed (${response.status})');
+    }
+
+    return (response.data as Map<String, dynamic>)['photoSessionId'] as String;
   }
 
   String contentTypeForPath(String storagePath) {

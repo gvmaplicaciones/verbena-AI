@@ -28,18 +28,19 @@ class GenerationRepository {
         body = {'promptText': source.prompt, 'photoSessionId': photoSessionId};
     }
 
-    final response = await _client.functions.invoke(functionName, body: body);
-    final data = response.data;
-
-    if (response.status == 402) {
-      throw InsufficientCreditsException();
+    // invoke() lanza FunctionException para cualquier respuesta no-2xx (402
+    // incluido) en vez de devolverla como FunctionResponse normal -- por eso
+    // el status se comprueba en el catch, no en response.status.
+    final FunctionResponse response;
+    try {
+      response = await _client.functions.invoke(functionName, body: body);
+    } on FunctionException catch (e) {
+      if (e.status == 402) throw InsufficientCreditsException();
+      final message = e.details is Map ? (e.details as Map)['error']?.toString() : null;
+      throw GenerationException(message ?? '$functionName failed (${e.status})');
     }
-    if (response.status != 200) {
-      final message = data is Map ? data['error']?.toString() : null;
-      throw GenerationException(message ?? '$functionName failed (${response.status})');
-    }
 
-    final json = data as Map<String, dynamic>;
+    final json = response.data as Map<String, dynamic>;
     final outcome = GenerationOutcome.fromJson(json);
     if (!outcome.isCompleted) return outcome;
 

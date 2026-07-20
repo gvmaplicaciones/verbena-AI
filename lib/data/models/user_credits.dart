@@ -22,6 +22,12 @@ class UserCredits {
   bool get isSubscribed => subscriptionStatus == 'active';
   bool get canUseFreeGeneration => !isSubscribed && !freeCreditUsed;
 
+  /// Espeja el orden tier -> extra -> free de deduct_credit() en Supabase
+  /// (`_shared/credits.ts`). `allowFree` debe ser true solo para modo
+  /// Catálogo -- Libertad nunca puede cobrar el crédito gratis.
+  bool hasCreditsFor({required bool allowFree}) =>
+      tierCredits > 0 || extraCredits > 0 || (allowFree && canUseFreeGeneration);
+
   factory UserCredits.fromJson(Map<String, dynamic> json) => UserCredits(
         tierCredits: json['tier_credits'] as int,
         tierTotal: json['tier_total'] as int,
