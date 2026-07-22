@@ -15,9 +15,13 @@ abstract final class AnalyticsService {
         properties: {'plan_id': planId},
       );
 
-  static Future<void> purchaseCompleted({required String planId}) => Posthog().capture(
+  static Future<void> purchaseCompleted({required String planId, String? transactionIdentifier}) =>
+      Posthog().capture(
         eventName: 'purchase_completed',
-        properties: {'plan_id': planId},
+        properties: {
+          'plan_id': planId,
+          if (transactionIdentifier != null) 'transaction_identifier': transactionIdentifier,
+        },
       );
 
   static Future<void> freeGenerationUsed() => Posthog().capture(

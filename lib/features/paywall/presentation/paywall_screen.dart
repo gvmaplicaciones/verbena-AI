@@ -5,10 +5,12 @@ import 'package:go_router/go_router.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 
 import '../../../core/constants/credits.dart';
+import '../../../core/router/app_routes.dart';
 import '../../../core/theme/verbena_icons.dart';
 import '../../../core/theme/verbena_theme.dart';
 import '../../../data/models/plan.dart';
 import '../../../data/models/user_credits.dart';
+import '../../../data/repositories/auth_repository.dart';
 import '../../../data/repositories/credits_repository.dart';
 import '../../../data/repositories/plans_repository.dart';
 import '../../../data/repositories/purchases_repository.dart';
@@ -44,6 +46,13 @@ class _PaywallScreenState extends ConsumerState<PaywallScreen> {
 
   Future<void> _buy(String productId, Future<void> Function() onSuccess) async {
     if (_busy) return;
+    // Registro solo obligatorio en el momento de pagar (no para la foto
+    // gratis) -- así se puede recuperar la suscripción si se reinstala la
+    // app o se cambia de móvil (ver account_gate_screen.dart).
+    if (ref.read(authRepositoryProvider).isAnonymous) {
+      final canProceed = await context.push<bool>(AppRoutes.accountGate);
+      if (canProceed != true || !mounted) return;
+    }
     setState(() => _busy = true);
     try {
       final repo = ref.read(purchasesRepositoryProvider);
@@ -57,7 +66,10 @@ class _PaywallScreenState extends ConsumerState<PaywallScreen> {
       await repo.purchasePackage(package);
       await repo.reconcile();
       ref.invalidate(myCreditsProvider);
-      await AnalyticsService.purchaseCompleted(planId: productId);
+      await AnalyticsService.purchaseCompleted(
+        planId: productId,
+        transactionIdentifier: repo.lastTransactionIdentifier,
+      );
       if (!mounted) return;
       await onSuccess();
     } on PlatformException catch (e) {

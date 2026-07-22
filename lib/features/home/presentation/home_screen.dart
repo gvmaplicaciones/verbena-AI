@@ -29,14 +29,6 @@ String? _cadenceLabel(String? activePlanId) {
   }
 }
 
-const _libertadPromptSuggestions = [
-  'Ponle la camiseta de España a mi perro',
-  'Conviértete en superhéroe volando',
-  'Añade un dragón detrás de ti',
-  'Hazte gigante en Times Square',
-  'Ponte un traje de luces',
-];
-
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
@@ -47,13 +39,6 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   int _tab = 0;
   String? _selectedCategoryId;
-  final _libertadController = TextEditingController();
-
-  @override
-  void dispose() {
-    _libertadController.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -76,7 +61,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   onCategorySelected: (id) => setState(() => _selectedCategoryId = id),
                 )
               else
-                _LibertadTab(controller: _libertadController),
+                const _LibertadTab(),
             ],
           ),
         ),
@@ -490,9 +475,7 @@ class _TemplateCard extends ConsumerWidget {
 }
 
 class _LibertadTab extends StatelessWidget {
-  const _LibertadTab({required this.controller});
-
-  final TextEditingController controller;
+  const _LibertadTab();
 
   @override
   Widget build(BuildContext context) {
@@ -501,79 +484,37 @@ class _LibertadTab extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SizedBox(
-            height: 36,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: _libertadPromptSuggestions.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 8),
-              itemBuilder: (context, i) {
-                final suggestion = _libertadPromptSuggestions[i];
-                return GestureDetector(
-                  onTap: () => controller.text = suggestion,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: VerbenaColors.card,
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(color: VerbenaColors.textDark.withValues(alpha: 0.15), width: 1.5),
-                    ),
-                    alignment: Alignment.center,
-                    child: Text(
-                      suggestion,
-                      style: VerbenaText.body(size: 12.5, weight: FontWeight.w500),
-                    ),
-                  ),
-                );
-              },
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: VerbenaColors.card,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: VerbenaColors.textDark.withValues(alpha: 0.12), width: 1.5),
             ),
-          ),
-          const SizedBox(height: 14),
-          TextField(
-            controller: controller,
-            minLines: 5,
-            maxLines: 8,
-            style: VerbenaText.body(size: 15),
-            decoration: InputDecoration(
-              hintText: 'Describe lo que quieres... ej: ponme a lomos de un toro de cartón piedra',
-              hintStyle: VerbenaText.body(size: 15, color: VerbenaColors.textMuted),
-              filled: true,
-              fillColor: VerbenaColors.card,
-              contentPadding: const EdgeInsets.all(16),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(color: VerbenaColors.textDark.withValues(alpha: 0.18), width: 1.5),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(color: VerbenaColors.textDark.withValues(alpha: 0.18), width: 1.5),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(16),
-                borderSide: BorderSide(color: VerbenaColors.teal, width: 1.5),
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
-          ValueListenableBuilder<TextEditingValue>(
-            valueListenable: controller,
-            builder: (context, value, _) {
-              final prompt = value.text.trim();
-              return SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: prompt.isEmpty
-                      ? null
-                      : () => context.push(AppRoutes.photoSelect, extra: LibertadSource(prompt)),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 15),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                    textStyle: VerbenaText.display(size: 15, color: VerbenaColors.background, letterSpacing: 0.4),
-                  ),
-                  child: const Text('CONTINUAR'),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Describe lo que quieres', style: VerbenaText.display(size: 17)),
+                const SizedBox(height: 8),
+                Text(
+                  'Primero elige una foto y luego nos cuentas qué quieres que hagamos con ella.',
+                  style: VerbenaText.body(size: 13.5, color: VerbenaColors.textMuted),
                 ),
-              );
-            },
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () => context.push(AppRoutes.photoSelect, extra: const LibertadSource('')),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 15),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                textStyle: VerbenaText.display(size: 15, color: VerbenaColors.background, letterSpacing: 0.4),
+              ),
+              child: const Text('CONTINUAR'),
+            ),
           ),
         ],
       ),

@@ -22,6 +22,12 @@ abstract final class Env {
 
   static const sentryDsn = String.fromEnvironment('SENTRY_DSN');
 
+  // Client ID "web" de Google Cloud Console -- es el que exige
+  // GoogleSignIn.instance.initialize(serverClientId:) en Android para que el
+  // idToken tenga la audiencia que Supabase (linkIdentityWithIdToken /
+  // signInWithIdToken) espera validar. No es secreto: va embebido en el APK.
+  static const googleWebClientId = String.fromEnvironment('GOOGLE_WEB_CLIENT_ID');
+
   // El handoff enlaza "Política de privacidad" sin URL real detrás --
   // vacío hasta que se provea vía --dart-define, ver aviso en ProfileScreen.
   static const privacyPolicyUrl = String.fromEnvironment('PRIVACY_POLICY_URL');

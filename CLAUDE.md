@@ -9,7 +9,8 @@ texto libre (modo Libertad). Monetización por suscripción (RevenueCat).
 - Backend: Supabase (Auth anónima, Postgres, Edge Functions, Storage)
 - Generación de imagen: Replicate — SIEMPRE vía Edge Functions, nunca API key en cliente
 - Analítica: PostHog (host UE) · Crash reporting: Sentry
-- Pagos: RevenueCat vía purchases_flutter / purchases_ui_flutter
+- Pagos: RevenueCat vía purchases_flutter (fijado exacto, sin `^` — ver 
+  Pendientes conocidos)
 
 ## Identidad visual
 Dirección "cartel vintage español". Fondo `#F3E6D0`, teal `#3D5C52`, terracota 
@@ -69,6 +70,23 @@ extra" superpuesto) — nunca A ni B.
 - Semanal: 4,99€ — 15 créditos de tier
 - Mensual: 14,99€ — 60 créditos de tier
 - Pack extra: 2,99€ — 7 créditos (solo con suscripción activa)
+
+## Pendientes conocidos
+- **Pack extra (consumible) no restaurable tras reinstalación/cambio de 
+  dispositivo sin cuenta vinculada**: desde purchases_flutter 10.0.0 (Billing 
+  Library 8), Google ya no permite consultar compras consumibles ya 
+  consumidas, así que RevenueCat quitó el workaround que antes permitía 
+  restaurarlas (ver [docs de RevenueCat](https://www.revenuecat.com/docs/known-store-issues/play-billing-library/restore-consumable-purchases-bc8)). 
+  Nuestro `appUserID` es el uid anónimo de Supabase (`main.dart`), que se 
+  regenera en cada reinstalación si el usuario nunca vinculó una cuenta real 
+  (email/Apple/Google) — mismo caso que RevenueCat describe como "usuario 
+  anónimo sin login". Afecta solo al pack extra (2,99€/7 créditos, 
+  consumible); las suscripciones semanal/mensual sí se restauran vía recibo 
+  de tienda independientemente del appUserID. Impacto bajo ahora mismo (pack 
+  extra es una compra puntual, no la suscripción principal) — no bloquea 
+  este upgrade. Se resuelve de raíz cuando exista vínculo por email 
+  (mencionado como pendiente futuro en el comentario de `main.dart`), que da 
+  un appUserID estable entre dispositivos/reinstalaciones.
 
 ## Convenciones de trabajo
 - Nunca asumir nombres de columna sin verificar el esquema real primero.

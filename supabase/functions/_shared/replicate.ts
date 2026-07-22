@@ -1,11 +1,21 @@
+import { backoffDelayMs, RETRY_BUDGET_MS, RETRY_MAX_ATTEMPTS, sleep, withRetry } from "./retry.ts";
+
 const REPLICATE_API_TOKEN = Deno.env.get("REPLICATE_API_TOKEN")!;
 
-// Deployment dedicado (min_instances=0, L40S) creado para sacar
-// flux-content-filter de la cola pública compartida de Replicate -- mismo
-// modelo, instancia propia. "owner/deployment-name", nunca "owner/model".
+// DEPRECATED desde que runNsfwCheck (falcons-ai/nsfw_image_detection) +
+// runCelebrityCheck (AWS Rekognition, ver _shared/aws.ts) sustituyeron el
+// NSFW y las figuras públicas de este deployment -- runContentFilter ya no
+// se llama desde verify-photo. Se deja sin usar a propósito (código y
+// deployment) por si hace falta volver atrás, no borrar sin decisión
+// explícita.
 const CONTENT_FILTER_DEPLOYMENT =
   Deno.env.get("REPLICATE_CONTENT_FILTER_DEPLOYMENT") ??
   "adlocalia/content-verbenai";
+
+// Confirmado con una predicción real (ver memoria de proyecto): input
+// {image: dataUri}, output un string plano "normal" | "nsfw" -- sin envolver
+// en array ni objeto, a diferencia de flux-content-filter.
+const NSFW_MODEL = Deno.env.get("REPLICATE_NSFW_MODEL") ?? "falcons-ai/nsfw_image_detection";
 
 // cdingram/face-swap: modo Catálogo, cara del usuario sobre la escena de la
 // plantilla (confirmado con output real: input_image=plantilla,
@@ -15,12 +25,20 @@ const CONTENT_FILTER_DEPLOYMENT =
 // no altere el comportamiento sin que lo decidamos nosotros -- pendiente:
 // aún no se ha fijado en este entorno porque no hay forma de confirmar el
 // hash con una predicción real (falta REPLICATE_API_TOKEN de prueba).
-// black-forest-labs/flux-kontext-pro: modo Libertad, edición por
-// instrucciones sobre la foto del usuario -- modelo oficial de Replicate,
-// no necesita version hash.
+// openai/gpt-image-2: modo Libertad, edición por instrucciones sobre 1-2
+// fotos de referencia del usuario -- modelo oficial de Replicate, no
+// necesita version hash. Sustituye a flux-kontext-pro (confirmado con una
+// predicción real: input_images es array, quality/output_format/
+// aspect_ratio/background/moderation son los parámetros reales, no
+// safety_tolerance ni aspect_ratio "match_input_image" que usaba
+// flux-kontext-pro). Confirmado en la documentación de OpenAI
+// (developers.openai.com/api/docs/guides/image-generation) que el coste sube
+// con cada imagen de referencia adicional (siempre se procesan a alta
+// fidelidad) -- no afecta al crédito que se cobra al usuario, que sigue
+// fijo en 1 sin importar el número de fotos.
 const FACE_SWAP_MODEL = Deno.env.get("REPLICATE_FACE_SWAP_MODEL") ?? "cdingram/face-swap";
 const IMAGE_EDIT_MODEL =
-  Deno.env.get("REPLICATE_IMAGE_EDIT_MODEL") ?? "black-forest-labs/flux-kontext-pro";
+  Deno.env.get("REPLICATE_IMAGE_EDIT_MODEL") ?? "openai/gpt-image-2";
 // Generación de plantillas desde cero (solo admin, generate-template-asset).
 const TEXT_TO_IMAGE_MODELS: Record<string, string> = {
   "flux-1.1-pro": Deno.env.get("REPLICATE_FLUX_PRO_MODEL") ?? "black-forest-labs/flux-1.1-pro",
@@ -88,6 +106,17 @@ export async function runContentFilter(
 }
 
 /**
+ * NSFW check dedicado (falcons-ai/nsfw_image_detection) -- sustituye la
+ * parte nsfw_detected de runContentFilter/flux-content-filter. Se ejecuta en
+ * paralelo con runCelebrityCheck (Rekognition) y runGlassesCheck en
+ * verify-photo, no de forma secuencial.
+ */
+export async function runNsfwCheck(imageDataUri: string): Promise<boolean> {
+  const prediction = await runPrediction(NSFW_MODEL, { image: imageDataUri }, 30);
+  return prediction.output === "nsfw";
+}
+
+/**
  * Warning no bloqueante: ¿la foto del usuario lleva gafas? Confirmado con
  * una predicción real que moondream2 responde "Yes"/"No" de forma fiable a
  * esta pregunta directa (~0.15-0.5s, coste insignificante frente al face
@@ -119,20 +148,30 @@ export async function runFaceSwap(
   return toGenerationResult(prediction);
 }
 
-/** Modo Libertad: edita `userPhotoDataUri` siguiendo `promptText` en texto libre. */
+/**
+ * Modo Libertad: edita 1-2 fotos de referencia (`referenceImageDataUris`)
+ * siguiendo `promptText` en texto libre. La segunda foto es opcional --
+ * gpt-image-2 la usa para el caso "cambia esto por esto otro" (p.ej.
+ * combinar dos fotos), no solo para editar una sola.
+ */
 export async function runImageEdit(
-  userPhotoDataUri: string,
+  referenceImageDataUris: string[],
   promptText: string,
 ): Promise<GenerationResult> {
   const prediction = await runPrediction(IMAGE_EDIT_MODEL, {
-    input_image: userPhotoDataUri,
+    input_images: referenceImageDataUris,
     prompt: promptText,
-    // La imagen editada debe conservar el encuadre de la foto del usuario,
-    // nunca recortarse/estirarse a un aspect ratio fijo del modelo.
-    aspect_ratio: "match_input_image",
-    // Fijado explícitamente en vez de heredar el default sin examinar
-    // (valor de partida, ajustable si el catálogo de prompts lo requiere).
-    safety_tolerance: 2,
+    quality: "medium",
+    output_format: "jpeg",
+    // Confirmado con una predicción real que gpt-image-2 acepta "auto" (el
+    // readme público solo documenta 1:1/3:2/2:3, pero la llamada real del
+    // usuario usó "auto" con éxito) -- deja que el modelo elija el encuadre
+    // en vez de forzar uno fijo.
+    aspect_ratio: "auto",
+    background: "auto",
+    moderation: "auto",
+    number_of_images: 1,
+    output_compression: 90,
   }, 60);
   return toGenerationResult(prediction);
 }
@@ -187,27 +226,6 @@ class ReplicateRateLimitError extends Error {
   }
 }
 
-// Techo bajo a propósito: la petición que se reintenta (crear predicción o
-// consultar su estado) responde rápido incluso cuando Replicate está
-// saturado, así que 3 reintentos + backoff no deja al usuario esperando
-// mucho más en la pantalla de Processing. El backoff real (~1s/2s/4s) casi
-// nunca llega a agotar el presupuesto de 20s.
-const RATE_LIMIT_MAX_RETRIES = 3;
-const RATE_LIMIT_BASE_DELAY_MS = 1000;
-const RATE_LIMIT_BUDGET_MS = 20_000;
-
-// Backoff exponencial (~1s, ~2s, ~4s...) con jitter del 75%-125% para que
-// varias llamadas en curso en paralelo (p.ej. content-filter y
-// glasses-check en verify-photo) no reintenten todas en el mismo instante.
-function backoffDelayMs(attempt: number): number {
-  const base = RATE_LIMIT_BASE_DELAY_MS * 2 ** attempt;
-  return base * (0.75 + Math.random() * 0.5);
-}
-
-async function sleep(ms: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 async function runPrediction(
   model: string,
   input: Record<string, unknown>,
@@ -249,8 +267,9 @@ async function createAndAwaitPrediction(
   // La creación aún no existe en Replicate si nos da 429 aquí, así que
   // reintentar desde cero es seguro -- no hay predicción a medias ni coste
   // ya incurrido.
-  let prediction: Prediction = await withRateLimitRetry(
+  let prediction: Prediction = await withRetry(
     () => createPrediction(url, body, waitSeconds, label),
+    (err) => err instanceof ReplicateRateLimitError,
     `crear predicción (${label})`,
   );
 
@@ -291,24 +310,6 @@ async function createPrediction(
   return res.json();
 }
 
-/** Reintenta `fn` solo si falla con ReplicateRateLimitError -- cualquier otro error se propaga sin tocar. */
-async function withRateLimitRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
-  const startedAt = Date.now();
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return await fn();
-    } catch (err) {
-      if (!(err instanceof ReplicateRateLimitError)) throw err;
-      if (attempt >= RATE_LIMIT_MAX_RETRIES || Date.now() - startedAt >= RATE_LIMIT_BUDGET_MS) {
-        throw err;
-      }
-      const delay = backoffDelayMs(attempt);
-      console.warn(`${label}: saturado, reintento ${attempt + 1}/${RATE_LIMIT_MAX_RETRIES} en ${Math.round(delay)}ms`);
-      await sleep(delay);
-    }
-  }
-}
-
 // 120s en vez de 60s -- crédito bajo en la cuenta de Replicate mete las
 // predicciones en cola varios minutos antes de arrancarlas de forma
 // intermitente; con esto el presupuesto total (wait síncrono + polling)
@@ -322,12 +323,12 @@ async function pollPrediction(id: string, model: string, timeoutMs = 120_000): P
     });
 
     if (res.status === 429) {
-      if (rateLimitAttempt >= RATE_LIMIT_MAX_RETRIES || Date.now() - started >= RATE_LIMIT_BUDGET_MS) {
+      if (rateLimitAttempt >= RETRY_MAX_ATTEMPTS || Date.now() - started >= RETRY_BUDGET_MS) {
         throw new ReplicateRateLimitError(`Replicate rate limited polling prediction ${id} (${model})`);
       }
       const delay = backoffDelayMs(rateLimitAttempt);
       console.warn(
-        `poll ${model}: saturado, reintento ${rateLimitAttempt + 1}/${RATE_LIMIT_MAX_RETRIES} en ${Math.round(delay)}ms`,
+        `poll ${model}: saturado, reintento ${rateLimitAttempt + 1}/${RETRY_MAX_ATTEMPTS} en ${Math.round(delay)}ms`,
       );
       rateLimitAttempt++;
       await sleep(delay);

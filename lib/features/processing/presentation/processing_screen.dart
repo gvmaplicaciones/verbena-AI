@@ -36,11 +36,22 @@ class ProcessingScreen extends ConsumerStatefulWidget {
   ConsumerState<ProcessingScreen> createState() => _ProcessingScreenState();
 }
 
-class _ProcessingScreenState extends ConsumerState<ProcessingScreen> {
+class _ProcessingScreenState extends ConsumerState<ProcessingScreen> with SingleTickerProviderStateMixin {
+  // La barra simulada tarda ~_progressCap * _tickInterval en llegar al tope
+  // (~30s) -- si la generación real responde antes, _run() la salta a 100%
+  // igualmente; si tarda más, se queda parada en el tope y el pulso de
+  // _pulseController indica que se sigue trabajando en vez de dejarla muerta.
+  static const _progressCap = 95;
+  static const _tickInterval = Duration(milliseconds: 315);
+
   bool _verifying = true;
   int _progressPct = 0;
   Timer? _progressTimer;
   _ProcessingError? _error;
+  late final AnimationController _pulseController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  )..repeat(reverse: true);
 
   @override
   void initState() {
@@ -52,6 +63,7 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> {
   @override
   void dispose() {
     _progressTimer?.cancel();
+    _pulseController.dispose();
     super.dispose();
   }
 
@@ -95,6 +107,38 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> {
       }
     }
 
+    String? secondPhotoSessionId;
+    if (widget.args.hasSecondPhoto) {
+      if (!mounted) return;
+      // La primera foto puede venir ya de una sesión (needsVerification =
+      // false) y saltarse el bloque de arriba -- si aun así hay segunda
+      // foto que verificar, hace falta mostrar el spinner de verificación
+      // igualmente, no solo cuando la primera también lo necesitaba.
+      if (!_verifying) setState(() => _verifying = true);
+      try {
+        final secondResult = await ref.read(photoRepositoryProvider).verifyPhoto(
+              bytes: widget.args.secondPhotoBytes!,
+              contentType: widget.args.secondContentType!,
+            );
+        if (secondResult.status == VerifiedPhotoStatus.approved) {
+          secondPhotoSessionId = secondResult.photoSessionId;
+        } else if (secondResult.status == VerifiedPhotoStatus.rejected) {
+          _fail(_ProcessingError(_ErrorKind.rejectedPhoto, secondResult.reason));
+          return;
+        } else {
+          _fail(const _ProcessingError(_ErrorKind.appealedPhoto));
+          return;
+        }
+      } catch (e, st) {
+        developer.log('verifyPhoto (second) failed', name: 'ProcessingScreen', error: e, stackTrace: st);
+        unawaited(
+          Sentry.captureException(e, stackTrace: st, hint: Hint.withMap({'stage': 'verifySecondPhoto'})),
+        );
+        _fail(const _ProcessingError(_ErrorKind.generic));
+        return;
+      }
+    }
+
     if (photoSessionId == null || !mounted) return;
 
     setState(() {
@@ -108,6 +152,7 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> {
       final outcome = await ref.read(generationRepositoryProvider).generate(
             source: widget.args.source,
             photoSessionId: photoSessionId,
+            secondPhotoSessionId: secondPhotoSessionId,
           );
       _progressTimer?.cancel();
       if (!mounted) return;
@@ -142,14 +187,14 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> {
     }
   }
 
-  // La barra avanza hasta el 92% mientras dura la llamada real a
+  // La barra avanza hasta _progressCap mientras dura la llamada real a
   // generate-catalog/generate-libertad (no hay progreso real que reportar
   // desde el backend) y salta a 100% solo cuando la respuesta llega.
   void _startProgressAnimation() {
-    _progressTimer = Timer.periodic(const Duration(milliseconds: 180), (timer) {
+    _progressTimer = Timer.periodic(_tickInterval, (timer) {
       if (!mounted) return;
       setState(() {
-        if (_progressPct < 92) _progressPct += 4;
+        if (_progressPct < _progressCap) _progressPct += 1;
       });
     });
   }
@@ -207,6 +252,7 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> {
   }
 
   Widget _buildProgressState() {
+    final stuck = !_verifying && _progressPct >= _progressCap;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: _verifying
@@ -245,6 +291,17 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> {
                   valueColor: const AlwaysStoppedAnimation(VerbenaColors.terracotta),
                 ),
               ),
+              if (stuck) ...[
+                const SizedBox(height: 18),
+                FadeTransition(
+                  opacity: _pulseController,
+                  child: Text(
+                    'Sigue trabajando, esto puede tardar un poco más...',
+                    textAlign: TextAlign.center,
+                    style: VerbenaText.body(size: 13, color: VerbenaColors.textMuted),
+                  ),
+                ),
+              ],
             ],
     );
   }

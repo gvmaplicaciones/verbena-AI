@@ -15,6 +15,14 @@ import '../../../data/models/verified_photo_summary.dart';
 import '../../../data/repositories/credits_repository.dart';
 import '../../../data/repositories/photo_repository.dart';
 
+const _libertadPromptSuggestions = [
+  'Ponle la camiseta de España a mi perro',
+  'Conviértete en superhéroe volando',
+  'Añade un dragón detrás de ti',
+  'Hazte gigante en Times Square',
+  'Ponte un traje de luces',
+];
+
 const _mimeByExtension = {
   'jpg': 'image/jpeg',
   'jpeg': 'image/jpeg',
@@ -27,6 +35,8 @@ String _mimeFromPath(String path) {
   return _mimeByExtension[ext] ?? 'image/jpeg';
 }
 
+enum _Stage { pickPhoto, enterPrompt }
+
 class PhotoSelectScreen extends ConsumerStatefulWidget {
   const PhotoSelectScreen({super.key, required this.source});
 
@@ -38,13 +48,77 @@ class PhotoSelectScreen extends ConsumerStatefulWidget {
 
 class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
   bool _busy = false;
+  _Stage _stage = _Stage.pickPhoto;
+  final _promptController = TextEditingController();
+
+  // Foto ya elegida en modo Libertad, en espera de que el usuario escriba el
+  // prompt y pulse "Generar" -- solo entonces se navega a Processing (que es
+  // quien dispara verify-photo), para no gastar la verificación con solo
+  // elegir foto.
+  Uint8List? _pendingBytes;
+  String? _pendingContentType;
+  String? _pendingSessionId;
+
+  // Segunda foto opcional de modo Libertad ("cambia esto por esto otro") --
+  // siempre bytes recién elegidos, nunca una sesión ya verificada (a
+  // diferencia de la principal, que puede venir de "Mis fotos verificadas").
+  Uint8List? _pendingSecondBytes;
+  String? _pendingSecondContentType;
+
+  @override
+  void dispose() {
+    _promptController.dispose();
+    super.dispose();
+  }
+
+  String get _title => _stage == _Stage.enterPrompt ? '¿Qué quieres hacer?' : '¿Con qué foto lo hacemos?';
 
   String get _subtitle {
     final source = widget.source;
+    if (_stage == _Stage.enterPrompt) return 'Escribe qué quieres que hagamos con esta foto';
     return switch (source) {
       CatalogSource() => 'Vamos a meterte en: ${source.template.name}',
-      LibertadSource() => 'Vamos a hacer: “${source.prompt}”',
+      LibertadSource() => 'Elige una foto para empezar',
     };
+  }
+
+  void _handleBack() {
+    if (_stage == _Stage.enterPrompt) {
+      setState(() {
+        _stage = _Stage.pickPhoto;
+        _pendingBytes = null;
+        _pendingContentType = null;
+        _pendingSessionId = null;
+        _pendingSecondBytes = null;
+        _pendingSecondContentType = null;
+      });
+    } else {
+      context.pop();
+    }
+  }
+
+  Future<void> _pickSecondFrom(ImageSource imageSource) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final file = await ImagePicker().pickImage(source: imageSource, imageQuality: 90);
+      if (file == null || !mounted) return;
+      final bytes = await file.readAsBytes();
+      if (!mounted) return;
+      setState(() {
+        _pendingSecondBytes = bytes;
+        _pendingSecondContentType = _mimeFromPath(file.path);
+      });
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _removeSecondPhoto() {
+    setState(() {
+      _pendingSecondBytes = null;
+      _pendingSecondContentType = null;
+    });
   }
 
   Future<void> _pickFrom(ImageSource imageSource) async {
@@ -55,10 +129,23 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
       if (file == null || !mounted) return;
       final bytes = await file.readAsBytes();
       if (!mounted) return;
-      _goToProcessing(bytes: bytes, contentType: _mimeFromPath(file.path));
+      _onPhotoChosen(bytes: bytes, contentType: _mimeFromPath(file.path));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  void _onPhotoChosen({required Uint8List bytes, required String contentType}) {
+    if (widget.source is LibertadSource) {
+      setState(() {
+        _pendingBytes = bytes;
+        _pendingContentType = contentType;
+        _pendingSessionId = null;
+        _stage = _Stage.enterPrompt;
+      });
+      return;
+    }
+    _goToProcessing(bytes: bytes, contentType: contentType);
   }
 
   void _goToProcessing({required Uint8List bytes, required String contentType}) {
@@ -78,12 +165,49 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
     try {
       final photoSessionId = await ref.read(photoRepositoryProvider).ensurePhotoSession(photo.id);
       if (!mounted) return;
+      if (widget.source is LibertadSource) {
+        setState(() {
+          _pendingSessionId = photoSessionId;
+          _pendingBytes = null;
+          _pendingContentType = null;
+          _stage = _Stage.enterPrompt;
+        });
+        return;
+      }
       context.push(
         AppRoutes.processing,
         extra: ProcessingArgs.fromSession(source: widget.source, photoSessionId: photoSessionId),
       );
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _submitLibertadPrompt() {
+    final prompt = _promptController.text.trim();
+    if (prompt.isEmpty) return;
+    final source = LibertadSource(prompt);
+    if (_pendingSessionId != null) {
+      context.push(
+        AppRoutes.processing,
+        extra: ProcessingArgs.fromSession(
+          source: source,
+          photoSessionId: _pendingSessionId!,
+          secondPhotoBytes: _pendingSecondBytes,
+          secondContentType: _pendingSecondContentType,
+        ),
+      );
+    } else {
+      context.push(
+        AppRoutes.processing,
+        extra: ProcessingArgs.fromPhoto(
+          source: source,
+          photoBytes: _pendingBytes!,
+          contentType: _pendingContentType!,
+          secondPhotoBytes: _pendingSecondBytes,
+          secondContentType: _pendingSecondContentType,
+        ),
+      );
     }
   }
 
@@ -117,12 +241,12 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
                   children: [
                     VerbenaRoundIconButton(
                       icon: const VerbenaBackChevronIcon(),
-                      onTap: () => context.pop(),
+                      onTap: _handleBack,
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Text(
-                        '¿Con qué foto lo hacemos?',
+                        _title,
                         style: VerbenaText.display(size: 20),
                       ),
                     ),
@@ -134,7 +258,15 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
                 child: Text(_subtitle, style: VerbenaText.body(size: 14, color: VerbenaColors.textMuted)),
               ),
               Expanded(
-                child: noCredits
+                child: _stage == _Stage.enterPrompt
+                    ? _LibertadPromptStep(
+                        controller: _promptController,
+                        onSubmit: _submitLibertadPrompt,
+                        secondPhotoBytes: _pendingSecondBytes,
+                        onPickSecondPhoto: _pickSecondFrom,
+                        onRemoveSecondPhoto: _removeSecondPhoto,
+                      )
+                    : noCredits
                     ? _NoCreditsState(
                         onUpgrade: () => context.push(AppRoutes.paywall, extra: 'photo_select_no_credits'),
                       )
@@ -249,6 +381,187 @@ class _PhotoTipBanner extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Paso 2 del modo Libertad: se muestra solo tras elegir foto, para no
+/// disparar verify-photo (que corre en ProcessingScreen) hasta que el
+/// usuario confirme también el prompt con "Generar".
+class _LibertadPromptStep extends StatelessWidget {
+  const _LibertadPromptStep({
+    required this.controller,
+    required this.onSubmit,
+    required this.secondPhotoBytes,
+    required this.onPickSecondPhoto,
+    required this.onRemoveSecondPhoto,
+  });
+
+  final TextEditingController controller;
+  final VoidCallback onSubmit;
+  final Uint8List? secondPhotoBytes;
+  final ValueChanged<ImageSource> onPickSecondPhoto;
+  final VoidCallback onRemoveSecondPhoto;
+
+  Future<void> _chooseSecondPhotoSource(BuildContext context) async {
+    final source = await showDialog<ImageSource>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: VerbenaColors.card,
+        title: Text('Añadir otra foto', style: VerbenaText.display(size: 17)),
+        content: Text(
+          '¿De dónde sacamos la segunda foto?',
+          style: VerbenaText.body(size: 13.5, color: VerbenaColors.textMuted),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(ImageSource.camera),
+            child: Text('Cámara', style: VerbenaText.body(size: 13.5, weight: FontWeight.w600)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(ImageSource.gallery),
+            child: Text(
+              'Galería',
+              style: VerbenaText.body(size: 13.5, weight: FontWeight.w700, color: VerbenaColors.teal),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (source != null) onPickSecondPhoto(source);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 22),
+      children: [
+        SizedBox(
+          height: 36,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: _libertadPromptSuggestions.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            itemBuilder: (context, i) {
+              final suggestion = _libertadPromptSuggestions[i];
+              return GestureDetector(
+                onTap: () => controller.text = suggestion,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: VerbenaColors.card,
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: VerbenaColors.textDark.withValues(alpha: 0.15), width: 1.5),
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    suggestion,
+                    style: VerbenaText.body(size: 12.5, weight: FontWeight.w500),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 14),
+        TextField(
+          controller: controller,
+          minLines: 5,
+          maxLines: 8,
+          style: VerbenaText.body(size: 15),
+          decoration: InputDecoration(
+            hintText: 'Describe lo que quieres... ej: ponme a lomos de un toro de cartón piedra',
+            hintStyle: VerbenaText.body(size: 15, color: VerbenaColors.textMuted),
+            filled: true,
+            fillColor: VerbenaColors.card,
+            contentPadding: const EdgeInsets.all(16),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(color: VerbenaColors.textDark.withValues(alpha: 0.18), width: 1.5),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(color: VerbenaColors.textDark.withValues(alpha: 0.18), width: 1.5),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide(color: VerbenaColors.teal, width: 1.5),
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        if (secondPhotoBytes == null)
+          Builder(
+            builder: (context) => GestureDetector(
+              onTap: () => _chooseSecondPhotoSource(context),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: VerbenaColors.textDark.withValues(alpha: 0.18), width: 1.5),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.add_photo_alternate_outlined, size: 18, color: VerbenaColors.textMuted),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Añadir otra foto (opcional)',
+                      style: VerbenaText.body(size: 13.5, weight: FontWeight.w600, color: VerbenaColors.textMuted),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          )
+        else
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: VerbenaColors.card,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: VerbenaColors.textDark.withValues(alpha: 0.15), width: 1.5),
+            ),
+            child: Row(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: Image.memory(secondPhotoBytes!, width: 44, height: 44, fit: BoxFit.cover),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Segunda foto añadida',
+                    style: VerbenaText.body(size: 13.5, weight: FontWeight.w600),
+                  ),
+                ),
+                IconButton(
+                  onPressed: onRemoveSecondPhoto,
+                  icon: const Icon(Icons.close_rounded, size: 20, color: VerbenaColors.textMuted),
+                ),
+              ],
+            ),
+          ),
+        const SizedBox(height: 14),
+        ValueListenableBuilder<TextEditingValue>(
+          valueListenable: controller,
+          builder: (context, value, _) {
+            final prompt = value.text.trim();
+            return SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: prompt.isEmpty ? null : onSubmit,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 15),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  textStyle: VerbenaText.display(size: 15, color: VerbenaColors.background, letterSpacing: 0.4),
+                ),
+                child: const Text('GENERAR'),
+              ),
+            );
+          },
+        ),
+      ],
     );
   }
 }

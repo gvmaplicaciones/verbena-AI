@@ -12,10 +12,12 @@ class GenerationRepository {
 
   /// Llama a generate-catalog/generate-libertad según el origen. El body
   /// varía: Catálogo manda `templateId`, Libertad manda `promptText` (no
-  /// `prompt` -- la Edge Function así lo espera).
+  /// `prompt` -- la Edge Function así lo espera) y, si hay segunda foto de
+  /// referencia, `secondPhotoSessionId` -- Catálogo no admite segunda foto.
   Future<GenerationOutcome> generate({
     required GenerationSource source,
     required String photoSessionId,
+    String? secondPhotoSessionId,
   }) async {
     final String functionName;
     final Map<String, dynamic> body;
@@ -25,7 +27,11 @@ class GenerationRepository {
         body = {'templateId': source.template.id, 'photoSessionId': photoSessionId};
       case LibertadSource():
         functionName = 'generate-libertad';
-        body = {'promptText': source.prompt, 'photoSessionId': photoSessionId};
+        body = {
+          'promptText': source.prompt,
+          'photoSessionId': photoSessionId,
+          if (secondPhotoSessionId != null) 'secondPhotoSessionId': secondPhotoSessionId,
+        };
     }
 
     // invoke() lanza FunctionException para cualquier respuesta no-2xx (402

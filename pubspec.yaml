@@ -17,9 +17,12 @@ dependencies:
   # Backend
   supabase_flutter: ^2.8.0
 
-  # Pagos / suscripciones
-  purchases_flutter: ^8.4.0
-  purchases_ui_flutter: ^8.4.0
+  # Pagos / suscripciones. Fijado exacto (sin ^): la SDK ha tenido dos majors
+  # con breaking changes en poco tiempo (9.0.0, 10.0.0), así que subimos a
+  # mano tras revisar el changelog en vez de dejar que un minor/patch
+  # arrastre algo sin avisar. purchases_ui_flutter se quitó: no se usa en
+  # ningún sitio del código (no hay PaywallView/RevenueCatUI).
+  purchases_flutter: 10.4.2
 
   # Diseño (Anton + Work Sans, ver core/theme)
   google_fonts: ^6.2.1
@@ -41,6 +44,11 @@ dependencies:
 
   crypto: ^3.0.5
 
+  # Google Sign-In nativo (vincula la sesión anónima o recupera cuenta, ver
+  # data/repositories/auth_repository.dart). API v7: GoogleSignIn.instance +
+  # initialize() async, en vez del viejo constructor/signIn() síncrono.
+  google_sign_in: ^7.2.0
+
   # Persistir el refresh token de la sesión anónima mientras se opera en el
   # menú de admin oculto (ver data/repositories/admin_repository.dart), para
   # poder restaurarla aunque la app se cierre a medias.
@@ -54,6 +62,8 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/icons/google_logo.png
 
 flutter_launcher_icons:
   android: true

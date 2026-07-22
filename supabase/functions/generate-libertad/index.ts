@@ -1,13 +1,22 @@
 // generate-libertad
 //
-// Modo Libertad: edita la foto verificada del usuario según un prompt de
-// texto libre. A diferencia de Catálogo, aquí SIEMPRE se filtra también el
-// texto del prompt (mismo modelo de moderación, imagen + texto en una sola
-// llamada) antes de descontar crédito -- si el filtro rechaza, no se cobra
-// nada y nunca se usa el crédito gratis (ese es exclusivo de Catálogo).
+// Modo Libertad: edita 1-2 fotos verificadas del usuario (gpt-image-2, ver
+// _shared/replicate.ts) según un prompt de texto libre. La segunda foto es
+// opcional, para el caso "cambia esto por esto otro" -- pasa por la MISMA
+// verificación que la primera (hash, NSFW, Rekognition), ninguna foto se
+// libra por ser la segunda. A diferencia de Catálogo, aquí el RESULTADO de
+// la edición (no las fotos de entrada, que ya verificó verify-photo, ni el
+// deployment deprecated de Replicate) se comprueba con los mismos modelos
+// que el resto del pipeline -- NSFW (falcons-ai/nsfw_image_detection) y
+// figuras públicas (AWS Rekognition) -- antes de mostrarlo. El prompt libre
+// puede hacer que gpt-image-2 genere algo que las fotos originales no
+// tenían, así que hace falta re-comprobar la salida. Si se rechaza, se
+// reembolsa el crédito ya descontado (nunca se usa el crédito gratis en
+// Libertad, regla de negocio). No se comprueba copyright (esa parte del
+// filtro antiguo se descarta).
 //
 // Request:  POST, Authorization: Bearer <supabase JWT>
-//           body JSON = { promptText: string, photoSessionId: string }
+//           body JSON = { promptText: string, photoSessionId: string, secondPhotoSessionId?: string }
 //
 // Response: { status: 'completed', generationId, resultUrl }
 //        o: { status: 'rejected', generationId, reason }
@@ -15,8 +24,10 @@
 
 import { corsHeaders } from "../_shared/cors.ts";
 import { getAuthedUser, supabaseAdmin } from "../_shared/supabase.ts";
-import { runContentFilter, runImageEdit } from "../_shared/replicate.ts";
-import { downloadAsDataUri, resolveActiveSession, uploadResultImage } from "../_shared/storage.ts";
+import { runImageEdit, runNsfwCheck } from "../_shared/replicate.ts";
+import { runCelebrityCheck } from "../_shared/aws.ts";
+import { encodeBase64 } from "../_shared/bytes.ts";
+import { downloadAsDataUri, resolveActiveSession } from "../_shared/storage.ts";
 import { deductCredit, InsufficientCreditsError, refundCredit } from "../_shared/credits.ts";
 
 const RESULT_URL_TTL_SECONDS = 60 * 60;
@@ -35,7 +46,7 @@ Deno.serve(async (req) => {
     return json({ error: "unauthorized" }, 401);
   }
 
-  let body: { promptText?: unknown; photoSessionId?: unknown };
+  let body: { promptText?: unknown; photoSessionId?: unknown; secondPhotoSessionId?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -43,6 +54,7 @@ Deno.serve(async (req) => {
   }
   const promptText = body.promptText;
   const photoSessionId = body.photoSessionId;
+  const secondPhotoSessionId = body.secondPhotoSessionId;
   if (
     typeof promptText !== "string" || promptText.trim().length === 0 ||
     promptText.length > MAX_PROMPT_LENGTH
@@ -51,6 +63,9 @@ Deno.serve(async (req) => {
   }
   if (typeof photoSessionId !== "string") {
     return json({ error: "photoSessionId is required" }, 400);
+  }
+  if (secondPhotoSessionId !== undefined && typeof secondPhotoSessionId !== "string") {
+    return json({ error: "secondPhotoSessionId must be a string" }, 400);
   }
 
   const admin = supabaseAdmin();
@@ -61,6 +76,14 @@ Deno.serve(async (req) => {
       return json({ error: "invalid or expired photo session, verify the photo again" }, 400);
     }
 
+    let resolvedSecondPhoto: { verifiedPhotoId: string; storagePath: string } | null = null;
+    if (typeof secondPhotoSessionId === "string") {
+      resolvedSecondPhoto = await resolveActiveSession(admin, user.id, secondPhotoSessionId);
+      if (!resolvedSecondPhoto) {
+        return json({ error: "invalid or expired second photo session, verify the photo again" }, 400);
+      }
+    }
+
     const { data: generation, error: genErr } = await admin
       .from("generations")
       .insert({
@@ -68,25 +91,19 @@ Deno.serve(async (req) => {
         mode: "libertad",
         prompt_text: promptText,
         photo_session_id: photoSessionId,
-        status: "verifying",
+        second_photo_session_id: resolvedSecondPhoto ? secondPhotoSessionId : null,
+        status: "pending",
       })
       .select("id")
       .single();
     if (genErr) throw genErr;
 
     const photoDataUri = await downloadAsDataUri(admin, "verified-photos", resolvedPhoto.storagePath);
-
-    const moderation = await runContentFilter(photoDataUri, promptText);
-    if (!moderation.passed) {
-      await admin
-        .from("generations")
-        .update({ status: "rejected", completed_at: new Date().toISOString() })
-        .eq("id", generation.id);
-      return json({
-        status: "rejected",
-        generationId: generation.id,
-        reason: moderation.reason ?? "El prompt no ha pasado la verificación.",
-      });
+    const referenceImageDataUris = [photoDataUri];
+    if (resolvedSecondPhoto) {
+      referenceImageDataUris.push(
+        await downloadAsDataUri(admin, "verified-photos", resolvedSecondPhoto.storagePath),
+      );
     }
 
     try {
@@ -103,10 +120,48 @@ Deno.serve(async (req) => {
     await admin.from("generations").update({ status: "generating" }).eq("id", generation.id);
 
     try {
-      const result = await runImageEdit(photoDataUri, promptText);
+      const result = await runImageEdit(referenceImageDataUris, promptText);
+
+      const resultRes = await fetch(result.outputUrl);
+      if (!resultRes.ok) {
+        throw new Error(`failed to download generation result: ${resultRes.status}`);
+      }
+      const resultBytes = new Uint8Array(await resultRes.arrayBuffer());
+      const resultContentType = resultRes.headers.get("Content-Type") ?? "image/jpeg";
+      const resultDataUri = `data:${resultContentType};base64,${encodeBase64(resultBytes)}`;
+
+      // El prompt libre puede llevar a gpt-image-2 a generar algo que las
+      // fotos de entrada no tenían -- se re-comprueba el resultado con los
+      // mismos modelos que verify-photo (NSFW + Rekognition), en paralelo.
+      const [isNsfw, celebrityResult] = await Promise.all([
+        runNsfwCheck(resultDataUri),
+        runCelebrityCheck(resultBytes),
+      ]);
+
+      if (isNsfw || celebrityResult.detected) {
+        await refundCredit(admin, generation.id);
+        await admin
+          .from("generations")
+          .update({
+            status: "rejected",
+            moderation_result: { nsfw: isNsfw, celebrity: celebrityResult.raw },
+            completed_at: new Date().toISOString(),
+          })
+          .eq("id", generation.id);
+        return json({
+          status: "rejected",
+          generationId: generation.id,
+          reason: isNsfw
+            ? "El resultado no ha pasado la verificación de contenido."
+            : "El resultado no ha pasado la verificación (figura pública detectada).",
+        });
+      }
 
       const resultStoragePath = `${user.id}/${generation.id}.jpg`;
-      await uploadResultImage(admin, "generation-results", resultStoragePath, result.outputUrl);
+      const { error: uploadErr } = await admin.storage
+        .from("generation-results")
+        .upload(resultStoragePath, resultBytes, { contentType: resultContentType, upsert: true });
+      if (uploadErr) throw uploadErr;
 
       const { data: signed, error: signedErr } = await admin.storage
         .from("generation-results")
@@ -119,6 +174,7 @@ Deno.serve(async (req) => {
           status: "completed",
           replicate_prediction_id: result.predictionId,
           result_storage_path: resultStoragePath,
+          moderation_result: { nsfw: isNsfw, celebrity: celebrityResult.raw },
           completed_at: new Date().toISOString(),
         })
         .eq("id", generation.id);

@@ -9,6 +9,7 @@ abstract final class AppRoutes {
   static const processing = '/processing';
   static const result = '/result';
   static const paywall = '/paywall';
+  static const accountGate = '/account-gate';
   static const profile = '/profile';
   static const privacyPolicy = '/profile/privacy-policy';
 
@@ -17,4 +18,5 @@ abstract final class AppRoutes {
   static const adminLogin = '/admin/login';
   static const adminTemplates = '/admin/templates';
   static const adminNewTemplate = '/admin/templates/new';
+  static const adminCategories = '/admin/categories';
 }

@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/admin_template.dart';
+import '../models/template.dart';
 import '../providers/supabase_provider.dart';
 
 /// Clave usada tanto aquí como en main.dart (arranque en frío) para
@@ -81,6 +82,40 @@ class AdminRepository {
   Future<void> deleteTemplate(String templateId, String imageStoragePath) async {
     await _client.storage.from('templates').remove([imageStoragePath]);
     await _client.from('templates').delete().eq('id', templateId);
+  }
+
+  /// A diferencia de fetchCategories() en TemplatesRepository (solo activas,
+  /// para el dropdown público), aquí trae también las desactivadas para que
+  /// el admin pueda reactivarlas.
+  Future<List<TemplateCategory>> fetchAllCategories() async {
+    final rows = await _client.from('template_categories').select().order('sort_order');
+    return rows.map(TemplateCategory.fromJson).toList();
+  }
+
+  /// `id` es el slug (primary key en texto, p.ej. 'gamberro'), no un uuid.
+  Future<void> createCategory({
+    required String id,
+    required String label,
+    String? badgeText,
+    int sortOrder = 0,
+  }) async {
+    await _client.from('template_categories').insert({
+      'id': id,
+      'label': label,
+      'badge_text': badgeText,
+      'sort_order': sortOrder,
+    });
+  }
+
+  Future<void> setCategoryActive(String categoryId, bool isActive) async {
+    await _client.from('template_categories').update({'is_active': isActive}).eq('id', categoryId);
+  }
+
+  /// Puede fallar con una foreign key violation si aún hay plantillas
+  /// usando esta categoría (templates.category_id no tiene ON DELETE) --
+  /// el caller debe capturarlo y avisar al admin en vez de dejarlo reventar.
+  Future<void> deleteCategory(String categoryId) async {
+    await _client.from('template_categories').delete().eq('id', categoryId);
   }
 
   /// Misma Edge Function que usa verbena-admin: genera la imagen, la sube y

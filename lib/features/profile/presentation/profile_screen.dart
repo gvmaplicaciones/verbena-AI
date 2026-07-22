@@ -11,6 +11,7 @@ import '../../../core/theme/verbena_theme.dart';
 import '../../../data/models/user_credits.dart';
 import '../../../data/models/verified_photo_summary.dart';
 import '../../../data/repositories/account_repository.dart';
+import '../../../data/repositories/auth_repository.dart';
 import '../../../data/repositories/credits_repository.dart';
 import '../../../data/repositories/photo_repository.dart';
 import '../../../data/repositories/purchases_repository.dart';
@@ -268,6 +269,21 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           child: Text(
                             'Cancelar suscripción',
                             style: VerbenaText.body(size: 13.5, weight: FontWeight.w600, color: VerbenaColors.terracotta),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                  if (!credits.isSubscribed && ref.watch(authRepositoryProvider).isAnonymous) ...[
+                    const SizedBox(height: 16),
+                    Center(
+                      child: GestureDetector(
+                        onTap: () => context.push(AppRoutes.accountGate, extra: true),
+                        child: Padding(
+                          padding: const EdgeInsets.all(6),
+                          child: Text(
+                            '¿Ya tenías cuenta? Recuperarla',
+                            style: VerbenaText.body(size: 13.5, weight: FontWeight.w600, color: VerbenaColors.teal),
                           ),
                         ),
                       ),

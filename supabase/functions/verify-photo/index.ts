@@ -19,7 +19,8 @@
 
 import { corsHeaders } from "../_shared/cors.ts";
 import { getAuthedUser, supabaseAdmin } from "../_shared/supabase.ts";
-import { runContentFilter, runGlassesCheck } from "../_shared/replicate.ts";
+import { runGlassesCheck, runNsfwCheck } from "../_shared/replicate.ts";
+import { runCelebrityCheck } from "../_shared/aws.ts";
 import { encodeBase64 } from "../_shared/bytes.ts";
 import { ensureActiveSession, SESSION_TTL_MS } from "../_shared/storage.ts";
 
@@ -124,14 +125,26 @@ async function verifyNewPhoto(
   upsertId?: string,
 ) {
   const dataUri = `data:${contentType};base64,${encodeBase64(bytes)}`;
-  const result = await runContentFilter(dataUri);
 
-  if (!result.passed) {
+  // Las tres comprobaciones corren en paralelo, no en secuencia: NSFW y
+  // figuras públicas (Rekognition) bloquean la aprobación, el warning de
+  // gafas no. runGlassesCheck ya trae su propio catch (no debe tumbar la
+  // verificación si falla la predicción).
+  const [isNsfw, celebrityResult, glassesDetected] = await Promise.all([
+    runNsfwCheck(dataUri),
+    runCelebrityCheck(bytes),
+    runGlassesCheck(dataUri).catch((err) => {
+      console.error("runGlassesCheck error", err);
+      return false;
+    }),
+  ]);
+
+  if (isNsfw || celebrityResult.detected) {
     const payload = {
       user_id: userId,
       file_hash: fileHash,
       status: "rejected",
-      moderation_result: result.raw,
+      moderation_result: { nsfw: isNsfw, celebrity: celebrityResult.raw },
       is_persisted: false,
       storage_path: null,
       expires_at: null,
@@ -144,7 +157,9 @@ async function verifyNewPhoto(
     return json({
       status: "rejected",
       verifiedPhotoId: rejected.id,
-      reason: result.reason ?? "La foto no ha pasado la verificación.",
+      reason: isNsfw
+        ? "La foto no ha pasado la verificación de contenido."
+        : "La foto no ha pasado la verificación (figura pública detectada).",
     });
   }
 
@@ -166,20 +181,13 @@ async function verifyNewPhoto(
     .upload(storagePath, bytes, { contentType, upsert: true });
   if (uploadErr) throw uploadErr;
 
-  // Warning no bloqueante, no afecta a la aprobación -- si falla la
-  // predicción no se debe tumbar toda la verificación por esto.
-  const glassesDetected = await runGlassesCheck(dataUri).catch((err) => {
-    console.error("runGlassesCheck error", err);
-    return false;
-  });
-
   const approvedPayload = {
     user_id: userId,
     file_hash: fileHash,
     storage_path: storagePath,
     is_persisted: isSubscribed,
     status: "approved",
-    moderation_result: result.raw,
+    moderation_result: { nsfw: isNsfw, celebrity: celebrityResult.raw },
     glasses_detected: glassesDetected,
     expires_at: isSubscribed ? null : new Date(Date.now() + SESSION_TTL_MS).toISOString(),
   };

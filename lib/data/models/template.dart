@@ -3,12 +3,14 @@ class TemplateCategory {
   final String label;
   final String? badgeText;
   final int sortOrder;
+  final bool isActive;
 
   const TemplateCategory({
     required this.id,
     required this.label,
     required this.sortOrder,
     this.badgeText,
+    this.isActive = true,
   });
 
   factory TemplateCategory.fromJson(Map<String, dynamic> json) => TemplateCategory(
@@ -16,6 +18,7 @@ class TemplateCategory {
         label: json['label'] as String,
         badgeText: json['badge_text'] as String?,
         sortOrder: json['sort_order'] as int,
+        isActive: json['is_active'] as bool? ?? true,
       );
 }
 

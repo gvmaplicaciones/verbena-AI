@@ -4,9 +4,11 @@ import 'package:go_router/go_router.dart';
 import '../../data/models/generation_source.dart';
 import '../../data/models/processing_args.dart';
 import '../../data/models/result_args.dart';
+import '../../features/admin/presentation/admin_categories_screen.dart';
 import '../../features/admin/presentation/admin_login_screen.dart';
 import '../../features/admin/presentation/admin_new_template_screen.dart';
 import '../../features/admin/presentation/admin_templates_screen.dart';
+import '../../features/auth/presentation/account_gate_screen.dart';
 import '../../features/home/presentation/home_screen.dart';
 import '../../features/onboarding/presentation/onboarding_screen.dart';
 import '../../features/paywall/presentation/paywall_screen.dart';
@@ -51,6 +53,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => PaywallScreen(source: state.extra! as String),
       ),
       GoRoute(
+        path: AppRoutes.accountGate,
+        builder: (context, state) => AccountGateScreen(initialSignInMode: state.extra == true),
+      ),
+      GoRoute(
         path: AppRoutes.profile,
         builder: (context, state) => const ProfileScreen(),
       ),
@@ -69,6 +75,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.adminNewTemplate,
         builder: (context, state) => const AdminNewTemplateScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.adminCategories,
+        builder: (context, state) => const AdminCategoriesScreen(),
       ),
     ],
   );

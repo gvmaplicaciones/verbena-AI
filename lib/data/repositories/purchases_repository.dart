@@ -40,7 +40,22 @@ class PurchasesRepository {
     return null;
   }
 
-  Future<CustomerInfo> purchasePackage(Package package) => Purchases.purchasePackage(package);
+  // Purchases.purchasePackage devuelve PurchaseResult desde purchases_flutter
+  // 9.0.0 (antes CustomerInfo directo) -- se extrae aquí para no propagar el
+  // cambio de tipo a paywall_screen.dart. El StoreTransaction que trae ahora
+  // gratis se guarda en _lastTransactionIdentifier para que paywall_screen lo
+  // loguee en AnalyticsService.purchaseCompleted justo después del await.
+  Future<CustomerInfo> purchasePackage(Package package) async {
+    // Migración deliberadamente mínima al subir a 10.4.2: purchase(PurchaseParams)
+    // queda para una sesión aparte, no forma parte de este upgrade.
+    // ignore: deprecated_member_use
+    final result = await Purchases.purchasePackage(package);
+    _lastTransactionIdentifier = result.storeTransaction.transactionIdentifier;
+    return result.customerInfo;
+  }
+
+  String? _lastTransactionIdentifier;
+  String? get lastTransactionIdentifier => _lastTransactionIdentifier;
 
   /// Tras una compra (o restore), sincroniza user_credits inmediatamente en
   /// vez de esperar al webhook de RevenueCat -- misma lógica server-side

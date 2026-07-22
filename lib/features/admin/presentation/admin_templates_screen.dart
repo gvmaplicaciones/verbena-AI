@@ -99,6 +99,11 @@ class _AdminTemplatesScreenState extends ConsumerState<AdminTemplatesScreen> {
                   children: [
                     Expanded(child: Text('Plantillas (admin)', style: VerbenaText.display(size: 19))),
                     IconButton(
+                      onPressed: () => context.push(AppRoutes.adminCategories),
+                      icon: const Icon(Icons.category_outlined),
+                      tooltip: 'Categorías',
+                    ),
+                    IconButton(
                       onPressed: () => context
                           .push(AppRoutes.adminNewTemplate)
                           .then((_) => ref.invalidate(adminTemplatesProvider)),

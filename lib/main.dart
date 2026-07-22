@@ -3,6 +3,7 @@ import 'dart:io' show HttpClient, HttpOverrides, Platform, SecurityContext, X509
 import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:posthog_flutter/posthog_flutter.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
@@ -41,6 +42,11 @@ Future<void> main() async {
     url: Env.supabaseUrl,
     publishableKey: Env.supabaseAnonKey,
   );
+
+  // serverClientId = client ID "web" (no el de Android): es el que da a los
+  // idToken la audiencia que Supabase espera. Se llama una sola vez, antes
+  // de cualquier authenticate() en AuthRepository.
+  await GoogleSignIn.instance.initialize(serverClientId: Env.googleWebClientId);
 
   // Auth anónima desde el primer uso, sin registro obligatorio. Se vincula a
   // una cuenta real (email/Apple/Google) solo si el usuario decide
