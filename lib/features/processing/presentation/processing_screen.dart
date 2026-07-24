@@ -8,6 +8,7 @@ import 'package:sentry_flutter/sentry_flutter.dart';
 
 import '../../../core/router/app_routes.dart';
 import '../../../core/theme/verbena_theme.dart';
+import '../../../core/widgets/confetti_background.dart';
 import '../../../data/models/generation_source.dart';
 import '../../../data/models/processing_args.dart';
 import '../../../data/models/result_args.dart';
@@ -15,7 +16,13 @@ import '../../../data/models/verified_photo.dart';
 import '../../../data/repositories/generation_repository.dart';
 import '../../../data/repositories/photo_repository.dart';
 
-enum _ErrorKind { rejectedPhoto, appealedPhoto, rejectedPrompt, insufficientCredits, generic }
+enum _ErrorKind {
+  rejectedPhoto,
+  appealedPhoto,
+  rejectedPrompt,
+  insufficientCredits,
+  generic
+}
 
 class _ProcessingError {
   const _ProcessingError(this.kind, [this.reason]);
@@ -24,8 +31,8 @@ class _ProcessingError {
 }
 
 /// El handoff no contempla NINGÚN estado de error (ni foto rechazada, ni
-/// prompt rechazado en Libertad, ni créditos insuficientes, ni fallo de
-/// Replicate) -- son estados reales del backend que la maqueta no pinta.
+/// prompt rechazado, ni créditos insuficientes, ni fallo de Replicate) --
+/// son estados reales del backend que la maqueta no pinta.
 /// Se añaden pantallas de error propias, avisado al usuario como el resto
 /// de correcciones de contenido/lógica.
 class ProcessingScreen extends ConsumerStatefulWidget {
@@ -37,7 +44,8 @@ class ProcessingScreen extends ConsumerStatefulWidget {
   ConsumerState<ProcessingScreen> createState() => _ProcessingScreenState();
 }
 
-class _ProcessingScreenState extends ConsumerState<ProcessingScreen> with SingleTickerProviderStateMixin {
+class _ProcessingScreenState extends ConsumerState<ProcessingScreen>
+    with SingleTickerProviderStateMixin {
   // La barra simulada tarda ~_progressCap * _tickInterval en llegar al tope
   // (~30s) -- si la generación real responde antes, _run() la salta a 100%
   // igualmente; si tarda más, se queda parada en el tope y el pulso de
@@ -117,15 +125,17 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> with Single
           return;
         }
       } catch (e, st) {
-        developer.log('verifyPhoto failed', name: 'ProcessingScreen', error: e, stackTrace: st);
-        unawaited(Sentry.captureException(e, stackTrace: st, hint: Hint.withMap({'stage': 'verifyPhoto'})));
+        developer.log('verifyPhoto failed',
+            name: 'ProcessingScreen', error: e, stackTrace: st);
+        unawaited(Sentry.captureException(e,
+            stackTrace: st, hint: Hint.withMap({'stage': 'verifyPhoto'})));
         _fail(const _ProcessingError(_ErrorKind.generic));
         return;
       }
     }
 
-    String? secondPhotoSessionId;
-    if (widget.args.hasSecondPhoto) {
+    String? secondPhotoSessionId = widget.args.secondPhotoSessionId;
+    if (secondPhotoSessionId == null && widget.args.secondPhotoBytes != null) {
       if (!mounted) return;
       // La primera foto puede venir ya de una sesión (needsVerification =
       // false) y saltarse el bloque de arriba -- si aun así hay segunda
@@ -133,23 +143,28 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> with Single
       // igualmente, no solo cuando la primera también lo necesitaba.
       if (!_verifying) setState(() => _verifying = true);
       try {
-        final secondResult = await ref.read(photoRepositoryProvider).verifyPhoto(
-              bytes: widget.args.secondPhotoBytes!,
-              contentType: widget.args.secondContentType!,
-            );
+        final secondResult =
+            await ref.read(photoRepositoryProvider).verifyPhoto(
+                  bytes: widget.args.secondPhotoBytes!,
+                  contentType: widget.args.secondContentType!,
+                );
         if (secondResult.status == VerifiedPhotoStatus.approved) {
           secondPhotoSessionId = secondResult.photoSessionId;
         } else if (secondResult.status == VerifiedPhotoStatus.rejected) {
-          _fail(_ProcessingError(_ErrorKind.rejectedPhoto, secondResult.reason));
+          _fail(
+              _ProcessingError(_ErrorKind.rejectedPhoto, secondResult.reason));
           return;
         } else {
           _fail(const _ProcessingError(_ErrorKind.appealedPhoto));
           return;
         }
       } catch (e, st) {
-        developer.log('verifyPhoto (second) failed', name: 'ProcessingScreen', error: e, stackTrace: st);
+        developer.log('verifyPhoto (second) failed',
+            name: 'ProcessingScreen', error: e, stackTrace: st);
         unawaited(
-          Sentry.captureException(e, stackTrace: st, hint: Hint.withMap({'stage': 'verifySecondPhoto'})),
+          Sentry.captureException(e,
+              stackTrace: st,
+              hint: Hint.withMap({'stage': 'verifySecondPhoto'})),
         );
         _fail(const _ProcessingError(_ErrorKind.generic));
         return;
@@ -197,15 +212,17 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> with Single
       _progressTimer?.cancel();
       _fail(const _ProcessingError(_ErrorKind.insufficientCredits));
     } catch (e, st) {
-      developer.log('generate failed', name: 'ProcessingScreen', error: e, stackTrace: st);
-      unawaited(Sentry.captureException(e, stackTrace: st, hint: Hint.withMap({'stage': 'generate'})));
+      developer.log('generate failed',
+          name: 'ProcessingScreen', error: e, stackTrace: st);
+      unawaited(Sentry.captureException(e,
+          stackTrace: st, hint: Hint.withMap({'stage': 'generate'})));
       _progressTimer?.cancel();
       _fail(const _ProcessingError(_ErrorKind.generic));
     }
   }
 
   // La barra avanza hasta _progressCap mientras dura la llamada real a
-  // generate-catalog/generate-libertad (no hay progreso real que reportar
+  // generate-catalog/generate-add-element (no hay progreso real que reportar
   // desde el backend) y salta a 100% solo cuando la respuesta llega.
   void _startProgressAnimation() {
     _progressTimer = Timer.periodic(_tickInterval, (timer) {
@@ -224,7 +241,8 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> with Single
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: VerbenaColors.card,
-        title: Text('Hemos detectado gafas', style: VerbenaText.display(size: 17)),
+        title:
+            Text('Hemos detectado gafas', style: VerbenaText.display(size: 17)),
         content: Text(
           'El resultado puede no quedar tan bien con gafas puestas. ¿Quieres continuar o cambiar de foto?',
           style: VerbenaText.body(size: 13.5, color: VerbenaColors.textMuted),
@@ -232,13 +250,17 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> with Single
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: Text('Cambiar de foto', style: VerbenaText.body(size: 13.5, weight: FontWeight.w600)),
+            child: Text('Cambiar de foto',
+                style: VerbenaText.body(size: 13.5, weight: FontWeight.w600)),
           ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(true),
             child: Text(
               'Continuar',
-              style: VerbenaText.body(size: 13.5, weight: FontWeight.w700, color: VerbenaColors.teal),
+              style: VerbenaText.body(
+                  size: 13.5,
+                  weight: FontWeight.w700,
+                  color: VerbenaColors.teal),
             ),
           ),
         ],
@@ -257,17 +279,22 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> with Single
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: VerbenaColors.background,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Center(
-            child: _comingSoon
-                ? const _ComingSoonState()
-                : _error != null
-                ? _ErrorState(error: _error!, onRetry: _run)
-                : _buildProgressState(),
+      body: Stack(
+        children: [
+          const ConfettiBackground(),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Center(
+                child: _comingSoon
+                    ? const _ComingSoonState()
+                    : _error != null
+                        ? _ErrorState(error: _error!, onRetry: _run)
+                        : _buildProgressState(),
+              ),
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -281,7 +308,8 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> with Single
               const SizedBox(
                 width: 68,
                 height: 68,
-                child: CircularProgressIndicator(strokeWidth: 5, color: VerbenaColors.teal),
+                child: CircularProgressIndicator(
+                    strokeWidth: 5, color: VerbenaColors.teal),
               ),
               const SizedBox(height: 26),
               Text('Verificando tu foto', style: VerbenaText.display(size: 22)),
@@ -289,18 +317,22 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> with Single
               Text(
                 'Comprobando que todo esté en orden.',
                 textAlign: TextAlign.center,
-                style: VerbenaText.body(size: 14.5, color: VerbenaColors.textMuted),
+                style: VerbenaText.body(
+                    size: 14.5, color: VerbenaColors.textMuted),
               ),
             ]
           : [
-              Text('$_progressPct%', style: VerbenaText.display(size: 40, color: VerbenaColors.teal)),
+              Text('$_progressPct%',
+                  style:
+                      VerbenaText.display(size: 40, color: VerbenaColors.teal)),
               const SizedBox(height: 26),
               Text('Generando tu foto', style: VerbenaText.display(size: 22)),
               const SizedBox(height: 26),
               Text(
                 'Puliendo los detalles, esto va que arde.',
                 textAlign: TextAlign.center,
-                style: VerbenaText.body(size: 14.5, color: VerbenaColors.textMuted),
+                style: VerbenaText.body(
+                    size: 14.5, color: VerbenaColors.textMuted),
               ),
               const SizedBox(height: 26),
               ClipRRect(
@@ -308,8 +340,10 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> with Single
                 child: LinearProgressIndicator(
                   value: _progressPct / 100,
                   minHeight: 12,
-                  backgroundColor: VerbenaColors.textDark.withValues(alpha: 0.1),
-                  valueColor: const AlwaysStoppedAnimation(VerbenaColors.terracotta),
+                  backgroundColor:
+                      VerbenaColors.textDark.withValues(alpha: 0.1),
+                  valueColor:
+                      const AlwaysStoppedAnimation(VerbenaColors.terracotta),
                 ),
               ),
               if (stuck) ...[
@@ -319,7 +353,8 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> with Single
                   child: Text(
                     'Sigue trabajando, esto puede tardar un poco más...',
                     textAlign: TextAlign.center,
-                    style: VerbenaText.body(size: 13, color: VerbenaColors.textMuted),
+                    style: VerbenaText.body(
+                        size: 13, color: VerbenaColors.textMuted),
                   ),
                 ),
               ],
@@ -339,9 +374,11 @@ class _ComingSoonState extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Icon(Icons.auto_awesome_rounded, size: 48, color: VerbenaColors.teal),
+        const Icon(Icons.auto_awesome_rounded,
+            size: 48, color: VerbenaColors.teal),
         const SizedBox(height: 22),
-        Text('Próximamente', style: VerbenaText.display(size: 22), textAlign: TextAlign.center),
+        Text('Próximamente',
+            style: VerbenaText.display(size: 22), textAlign: TextAlign.center),
         const SizedBox(height: 14),
         Text(
           'Este modo todavía no está disponible. Estamos trabajando en ello.',
@@ -351,7 +388,9 @@ class _ComingSoonState extends StatelessWidget {
         const SizedBox(height: 28),
         TextButton(
           onPressed: () => context.go(AppRoutes.home),
-          child: Text('Volver al inicio', style: VerbenaText.body(size: 13.5, color: VerbenaColors.textMuted)),
+          child: Text('Volver al inicio',
+              style:
+                  VerbenaText.body(size: 13.5, color: VerbenaColors.textMuted)),
         ),
       ],
     );
@@ -392,7 +431,8 @@ class _ErrorState extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(title, style: VerbenaText.display(size: 22), textAlign: TextAlign.center),
+        Text(title,
+            style: VerbenaText.display(size: 22), textAlign: TextAlign.center),
         const SizedBox(height: 14),
         Text(
           message,
@@ -404,19 +444,23 @@ class _ErrorState extends StatelessWidget {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
-              onPressed: () => context.pushReplacement(AppRoutes.paywall, extra: 'processing'),
+              onPressed: () => context.pushReplacement(AppRoutes.paywall,
+                  extra: 'processing'),
               child: const Text('VER PLANES'),
             ),
           )
         else if (error.kind == _ErrorKind.generic)
           SizedBox(
             width: double.infinity,
-            child: ElevatedButton(onPressed: onRetry, child: const Text('REINTENTAR')),
+            child: ElevatedButton(
+                onPressed: onRetry, child: const Text('REINTENTAR')),
           ),
         const SizedBox(height: 10),
         TextButton(
           onPressed: () => context.go(AppRoutes.home),
-          child: Text('Volver al inicio', style: VerbenaText.body(size: 13.5, color: VerbenaColors.textMuted)),
+          child: Text('Volver al inicio',
+              style:
+                  VerbenaText.body(size: 13.5, color: VerbenaColors.textMuted)),
         ),
       ],
     );

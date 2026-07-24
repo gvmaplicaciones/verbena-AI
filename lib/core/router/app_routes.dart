@@ -5,6 +5,7 @@ const onboardingCompletedPrefsKey = 'onboarding_completed';
 abstract final class AppRoutes {
   static const onboarding = '/onboarding';
   static const home = '/home';
+  static const removeElementMode = '/remove-element-mode';
   static const photoSelect = '/photo-select';
   static const processing = '/processing';
   static const result = '/result';

@@ -2,7 +2,8 @@
 
 App de generación de fotos con IA para el mercado español. El usuario sube su 
 foto y genera imágenes suyas en escenas predefinidas (modo Catálogo) o mediante 
-texto libre (modo Libertad). Monetización por suscripción (RevenueCat).
+texto libre para añadir elementos (modo Añadir algo). Monetización por 
+suscripción (RevenueCat).
 
 ## Stack
 - Flutter (Riverpod + go_router), iOS + Android desde un único codebase
@@ -31,9 +32,9 @@ extra" superpuesto) — nunca A ni B.
 ## Reglas de negocio clave (no reinterpretar sin confirmar con el usuario)
 
 **Verificación de identidad real (crítico, no negociable)**:
-- El filtro `flux-content-filter` se aplica SIEMPRE a la foto que sube el 
-  usuario, en ambos modos — nunca solo al texto. En modo Libertad, además se 
-  filtra el texto del prompt.
+- La foto que sube el usuario pasa SIEMPRE por verificación (NSFW + 
+  Rekognition de figuras públicas), en todos los modos. En modos con prompt 
+  libre (p.ej. Añadir algo), además se revisa el resultado generado.
 - Verificación por hash exacto del archivo, una vez por sesión, reutilizable 
   en todas las generaciones de esa sesión.
 - Verificar SIEMPRE antes de descontar crédito. Si falla, no se cobra nada.
@@ -49,11 +50,10 @@ extra" superpuesto) — nunca A ni B.
   nunca.
 - Orden de consumo: siempre tier primero, extra solo cuando tier = 0. Se 
   permite reparto entre ambos si hace falta.
-- Coste: 1 crédito = 1 generación, sin distinción de modo (catálogo y 
-  libertad cuestan igual). Cualquiera de los dos contadores vale para 
-  cualquiera de los dos modos.
-- Free tier: 1 generación gratis total, solo en modo Catálogo, nunca en 
-  Libertad.
+- Coste: 1 crédito = 1 generación, sin distinción de modo. Cualquiera de los 
+  dos contadores vale para cualquier modo.
+- Free tier: 1 generación gratis total por usuario, válida en cualquier 
+  modo — se agota con el primer uso, sea cual sea el modo.
 
 **Retención de datos**:
 - Usuarios de pago: foto guardada mientras dure la suscripción activa. 

@@ -14,6 +14,7 @@ class ProcessingArgs {
     required String this.contentType,
     this.secondPhotoBytes,
     this.secondContentType,
+    this.secondPhotoSessionId,
   }) : photoSessionId = null;
 
   const ProcessingArgs.fromSession({
@@ -21,6 +22,7 @@ class ProcessingArgs {
     required String this.photoSessionId,
     this.secondPhotoBytes,
     this.secondContentType,
+    this.secondPhotoSessionId,
   })  : photoBytes = null,
         contentType = null;
 
@@ -29,13 +31,16 @@ class ProcessingArgs {
   final String? contentType;
   final String? photoSessionId;
 
-  // Segunda foto opcional de modo Libertad (gpt-image-2 admite hasta 2
-  // imágenes de referencia) -- siempre recién elegida (bytes), nunca
-  // reutiliza "Mis fotos verificadas" como la primera, así que solo hace
-  // falta un constructor común para ambas variantes de la foto principal.
+  // Segunda foto opcional (gpt-image-2 admite hasta 2 imágenes de
+  // referencia): bytes si se acaba de elegir de cámara/galería (hace falta
+  // verificarla en ProcessingScreen), o secondPhotoSessionId si ya viene de
+  // "Mis fotos verificadas" -- mismo patrón que photoBytes/photoSessionId
+  // para la foto principal.
   final Uint8List? secondPhotoBytes;
   final String? secondContentType;
+  final String? secondPhotoSessionId;
 
   bool get needsVerification => photoSessionId == null;
-  bool get hasSecondPhoto => secondPhotoBytes != null;
+  bool get hasSecondPhoto =>
+      secondPhotoBytes != null || secondPhotoSessionId != null;
 }

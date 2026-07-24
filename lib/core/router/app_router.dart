@@ -16,6 +16,7 @@ import '../../features/photo_select/presentation/photo_select_screen.dart';
 import '../../features/processing/presentation/processing_screen.dart';
 import '../../features/profile/presentation/privacy_policy_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
+import '../../features/remove_element/presentation/remove_mode_select_screen.dart';
 import '../../features/result/presentation/result_screen.dart';
 import 'app_routes.dart';
 
@@ -35,6 +36,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.home,
         builder: (context, state) => const HomeScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.removeElementMode,
+        builder: (context, state) => const RemoveModeSelectScreen(),
       ),
       GoRoute(
         path: AppRoutes.photoSelect,

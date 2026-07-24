@@ -23,8 +23,8 @@ class UserCredits {
   bool get canUseFreeGeneration => !isSubscribed && !freeCreditUsed;
 
   /// Espeja el orden tier -> extra -> free de deduct_credit() en Supabase
-  /// (`_shared/credits.ts`). `allowFree` debe ser true solo para modo
-  /// Catálogo -- Libertad nunca puede cobrar el crédito gratis.
+  /// (`_shared/credits.ts`). `allowFree` es true en cualquier modo -- solo
+  /// hay un crédito gratis por usuario en total (`freeCreditUsed` es global).
   bool hasCreditsFor({required bool allowFree}) =>
       tierCredits > 0 || extraCredits > 0 || (allowFree && canUseFreeGeneration);
 

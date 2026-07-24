@@ -118,10 +118,9 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
 
                     _SectionTitle('3. Para qué usamos tu foto'),
                     _Paragraph(
-                      'Exclusivamente para generar las imágenes que solicitas dentro de la app (modo Catálogo o '
-                      'modo Libertad). Antes de cualquier generación, tu foto pasa por un proceso automático de '
-                      'verificación para impedir que se usen imágenes de terceros o de figuras públicas sin su '
-                      'consentimiento.',
+                      'Exclusivamente para generar las imágenes que solicitas dentro de la app. Antes de cualquier '
+                      'generación, tu foto pasa por un proceso automático de verificación para impedir que se usen '
+                      'imágenes de terceros o de figuras públicas sin su consentimiento.',
                       style: _bodyStyle,
                     ),
 

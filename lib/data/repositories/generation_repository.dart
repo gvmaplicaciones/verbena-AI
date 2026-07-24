@@ -10,8 +10,8 @@ class GenerationRepository {
 
   final SupabaseClient _client;
 
-  /// Llama a generate-catalog/generate-libertad según el origen. El body
-  /// varía: Catálogo manda `templateId`, Libertad manda `promptText` (no
+  /// Llama a generate-catalog/generate-add-element según el origen. El body
+  /// varía: Catálogo manda `templateId`, Añadir algo manda `promptText` (no
   /// `prompt` -- la Edge Function así lo espera) y, si hay segunda foto de
   /// referencia, `secondPhotoSessionId` -- Catálogo no admite segunda foto.
   Future<GenerationOutcome> generate({
@@ -25,20 +25,23 @@ class GenerationRepository {
       case CatalogSource():
         functionName = 'generate-catalog';
         body = {'templateId': source.template.id, 'photoSessionId': photoSessionId};
-      case LibertadSource():
-        functionName = 'generate-libertad';
+      case AddElementSource():
+        functionName = 'generate-add-element';
         body = {
           'promptText': source.prompt,
           'photoSessionId': photoSessionId,
           if (secondPhotoSessionId != null) 'secondPhotoSessionId': secondPhotoSessionId,
         };
+      case RemoveElementSource():
+        // Máximo 1 foto en este modo (ver PhotoSelectScreen._maxSelectedImages),
+        // así que no hay secondPhotoSessionId que mandar.
+        functionName = 'generate-remove-element';
+        body = {'promptText': source.prompt, 'photoSessionId': photoSessionId};
       // FASE 0 del grid de 4 modos: estos source aún no tienen backend --
       // ProcessingScreen corta el flujo antes de llegar aquí (ver
       // GenerationSourceStatus.isComingSoon), así que esta rama es
       // inalcanzable en la práctica. Solo existe para que el switch
       // exhaustivo compile.
-      case AddElementSource():
-      case RemoveElementSource():
       case ChangeBackgroundSource():
       case TryOnSource():
         throw UnimplementedError('$source todavía no está conectado a un backend real');

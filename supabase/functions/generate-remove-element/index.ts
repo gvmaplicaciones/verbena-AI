@@ -1,22 +1,19 @@
-// generate-libertad
+// generate-remove-element
 //
-// Modo Libertad: edita 1-2 fotos verificadas del usuario (gpt-image-2, ver
-// _shared/replicate.ts) según un prompt de texto libre. La segunda foto es
-// opcional, para el caso "cambia esto por esto otro" -- pasa por la MISMA
-// verificación que la primera (hash, NSFW, Rekognition), ninguna foto se
-// libra por ser la segunda. A diferencia de Catálogo, aquí el RESULTADO de
-// la edición (no las fotos de entrada, que ya verificó verify-photo, ni el
-// deployment deprecated de Replicate) se comprueba con los mismos modelos
-// que el resto del pipeline -- NSFW (falcons-ai/nsfw_image_detection) y
-// figuras públicas (AWS Rekognition) -- antes de mostrarlo. El prompt libre
-// puede hacer que gpt-image-2 genere algo que las fotos originales no
-// tenían, así que hace falta re-comprobar la salida. Si se rechaza, se
-// reembolsa el crédito ya descontado (nunca se usa el crédito gratis en
-// Libertad, regla de negocio). No se comprueba copyright (esa parte del
-// filtro antiguo se descarta).
+// Modo "Eliminar algo" (sub-modo "por texto"): edita 1 foto verificada del
+// usuario (gpt-image-2, ver _shared/replicate.ts runElementRemoval) según un
+// prompt de texto que describe qué quitar de la foto. A diferencia de
+// Añadir algo, aquí solo se admite 1 foto -- no tiene sentido combinar dos
+// fotos para quitar algo de una de ellas (ver
+// PhotoSelectScreen._maxSelectedImages). Igual que Añadir algo, el
+// RESULTADO de la edición se re-verifica (NSFW + Rekognition) antes de
+// mostrarlo, porque el prompt libre puede hacer que gpt-image-2 altere algo
+// que las fotos originales no tenían -- si se rechaza, se reembolsa el
+// crédito ya descontado. Puede tirar del único crédito gratis por usuario
+// (allowFree = true, regla "cualquier modo").
 //
 // Request:  POST, Authorization: Bearer <supabase JWT>
-//           body JSON = { promptText: string, photoSessionId: string, secondPhotoSessionId?: string }
+//           body JSON = { promptText: string, photoSessionId: string }
 //
 // Response: { status: 'completed', generationId, resultUrl }
 //        o: { status: 'rejected', generationId, reason }
@@ -24,7 +21,7 @@
 
 import { corsHeaders } from "../_shared/cors.ts";
 import { getAuthedUser, supabaseAdmin } from "../_shared/supabase.ts";
-import { runImageEdit, runNsfwCheck } from "../_shared/replicate.ts";
+import { runElementRemoval, runNsfwCheck } from "../_shared/replicate.ts";
 import { runCelebrityCheck } from "../_shared/aws.ts";
 import { encodeBase64 } from "../_shared/bytes.ts";
 import { downloadAsDataUri, resolveActiveSession } from "../_shared/storage.ts";
@@ -46,7 +43,7 @@ Deno.serve(async (req) => {
     return json({ error: "unauthorized" }, 401);
   }
 
-  let body: { promptText?: unknown; photoSessionId?: unknown; secondPhotoSessionId?: unknown };
+  let body: { promptText?: unknown; photoSessionId?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -54,7 +51,6 @@ Deno.serve(async (req) => {
   }
   const promptText = body.promptText;
   const photoSessionId = body.photoSessionId;
-  const secondPhotoSessionId = body.secondPhotoSessionId;
   if (
     typeof promptText !== "string" || promptText.trim().length === 0 ||
     promptText.length > MAX_PROMPT_LENGTH
@@ -63,9 +59,6 @@ Deno.serve(async (req) => {
   }
   if (typeof photoSessionId !== "string") {
     return json({ error: "photoSessionId is required" }, 400);
-  }
-  if (secondPhotoSessionId !== undefined && typeof secondPhotoSessionId !== "string") {
-    return json({ error: "secondPhotoSessionId must be a string" }, 400);
   }
 
   const admin = supabaseAdmin();
@@ -76,22 +69,13 @@ Deno.serve(async (req) => {
       return json({ error: "invalid or expired photo session, verify the photo again" }, 400);
     }
 
-    let resolvedSecondPhoto: { verifiedPhotoId: string; storagePath: string } | null = null;
-    if (typeof secondPhotoSessionId === "string") {
-      resolvedSecondPhoto = await resolveActiveSession(admin, user.id, secondPhotoSessionId);
-      if (!resolvedSecondPhoto) {
-        return json({ error: "invalid or expired second photo session, verify the photo again" }, 400);
-      }
-    }
-
     const { data: generation, error: genErr } = await admin
       .from("generations")
       .insert({
         user_id: user.id,
-        mode: "libertad",
+        mode: "remove_element",
         prompt_text: promptText,
         photo_session_id: photoSessionId,
-        second_photo_session_id: resolvedSecondPhoto ? secondPhotoSessionId : null,
         status: "pending",
       })
       .select("id")
@@ -99,16 +83,10 @@ Deno.serve(async (req) => {
     if (genErr) throw genErr;
 
     const photoDataUri = await downloadAsDataUri(admin, "verified-photos", resolvedPhoto.storagePath);
-    const referenceImageDataUris = [photoDataUri];
-    if (resolvedSecondPhoto) {
-      referenceImageDataUris.push(
-        await downloadAsDataUri(admin, "verified-photos", resolvedSecondPhoto.storagePath),
-      );
-    }
 
     try {
-      // Libertad nunca usa el crédito gratis (regla de negocio): allowFree = false.
-      await deductCredit(admin, user.id, generation.id, false);
+      // Cualquier modo puede tirar del único crédito gratis por usuario.
+      await deductCredit(admin, user.id, generation.id, true);
     } catch (err) {
       if (err instanceof InsufficientCreditsError) {
         await admin.from("generations").update({ status: "failed" }).eq("id", generation.id);
@@ -120,7 +98,7 @@ Deno.serve(async (req) => {
     await admin.from("generations").update({ status: "generating" }).eq("id", generation.id);
 
     try {
-      const result = await runImageEdit(referenceImageDataUris, promptText);
+      const result = await runElementRemoval(photoDataUri, promptText);
 
       const resultRes = await fetch(result.outputUrl);
       if (!resultRes.ok) {
@@ -130,8 +108,8 @@ Deno.serve(async (req) => {
       const resultContentType = resultRes.headers.get("Content-Type") ?? "image/jpeg";
       const resultDataUri = `data:${resultContentType};base64,${encodeBase64(resultBytes)}`;
 
-      // El prompt libre puede llevar a gpt-image-2 a generar algo que las
-      // fotos de entrada no tenían -- se re-comprueba el resultado con los
+      // El prompt libre puede llevar a gpt-image-2 a alterar algo que la
+      // foto de entrada no tenía -- se re-comprueba el resultado con los
       // mismos modelos que verify-photo (NSFW + Rekognition), en paralelo.
       const [isNsfw, celebrityResult] = await Promise.all([
         runNsfwCheck(resultDataUri),
@@ -181,7 +159,7 @@ Deno.serve(async (req) => {
 
       return json({ status: "completed", generationId: generation.id, resultUrl: signed.signedUrl });
     } catch (err) {
-      console.error("generate-libertad generation error", err);
+      console.error("generate-remove-element generation error", err);
       await refundCredit(admin, generation.id);
       await admin
         .from("generations")
@@ -190,7 +168,7 @@ Deno.serve(async (req) => {
       return json({ error: "internal error generating image" }, 502);
     }
   } catch (err) {
-    console.error("generate-libertad error", err);
+    console.error("generate-remove-element error", err);
     return json({ error: "internal error" }, 500);
   }
 });

@@ -22,7 +22,7 @@ const NSFW_MODEL = Deno.env.get("REPLICATE_NSFW_MODEL") ?? "falcons-ai/nsfw_imag
 // lo que fallaba en plantillas de grupo. Sustituido por runCatalogFaceSwap
 // (gpt-image-2, ver más abajo) -- se deja sin usar a propósito, no borrar sin
 // decisión explícita, mismo criterio que CONTENT_FILTER_DEPLOYMENT.
-// openai/gpt-image-2: modo Libertad, edición por instrucciones sobre 1-2
+// openai/gpt-image-2: modo Añadir algo, edición por instrucciones sobre 1-2
 // fotos de referencia del usuario -- modelo oficial de Replicate, no
 // necesita version hash. Sustituye a flux-kontext-pro (confirmado con una
 // predicción real: input_images es array, quality/output_format/
@@ -62,9 +62,10 @@ export interface GenerationResult {
 }
 
 /**
- * Runs the moderation model against an image (and, for modo Libertad,
- * optionally the free-text prompt in the same call — confirmed the model
- * accepts both inputs at once, no separate text-moderation service needed).
+ * Runs the moderation model against an image (and, for modes with a free
+ * prompt, optionally the free-text prompt in the same call — confirmed the
+ * model accepts both inputs at once, no separate text-moderation service
+ * needed).
  */
 export async function runContentFilter(
   imageDataUri: string,
@@ -192,7 +193,7 @@ const CATALOG_FACE_FIDELITY_SUFFIX =
 
 /**
  * Modo Catálogo (gpt-image-2, misma arquitectura que runImageEdit/modo
- * Libertad): genera sobre `userPhotoDataUri` (y, si la plantilla la tiene,
+ * Añadir algo): genera sobre `userPhotoDataUri` (y, si la plantilla la tiene,
  * `objectReferenceDataUri` como segunda imagen de referencia, ej. una joya a
  * incorporar) siguiendo `scenePrompt` -- el texto que escribe el admin al
  * crear la plantilla. El prompt final se construye aquí combinando
@@ -218,7 +219,7 @@ export async function runCatalogGeneration(
 }
 
 /**
- * Modo Libertad: edita 1-2 fotos de referencia (`referenceImageDataUris`)
+ * Modo Añadir algo: edita 1-2 fotos de referencia (`referenceImageDataUris`)
  * siguiendo `promptText` en texto libre. La segunda foto es opcional --
  * gpt-image-2 la usa para el caso "cambia esto por esto otro" (p.ej.
  * combinar dos fotos), no solo para editar una sola.
@@ -243,6 +244,27 @@ export async function runImageEdit(
     output_compression: 90,
   }, 60);
   return toGenerationResult(prediction);
+}
+
+// Sufijo fijo para el modo "Eliminar algo" (por texto) -- sin esto,
+// gpt-image-2 tiende a dejar artefactos o alterar el resto de la foto al
+// rellenar el hueco. El resto de la instrucción (qué quitar) la pone el
+// usuario en promptText.
+const REMOVE_ELEMENT_SUFFIX =
+  "Rellena la zona resultante de forma fotorrealista y coherente con el " +
+  "resto de la imagen (iluminación, perspectiva, textura). No alteres " +
+  "ninguna otra parte de la foto ni a las personas presentes.";
+
+/**
+ * Modo Eliminar algo (por texto): edita 1 foto de referencia quitando lo que
+ * describe `promptText`, delegando en runImageEdit igual que Añadir algo.
+ */
+export async function runElementRemoval(
+  photoDataUri: string,
+  promptText: string,
+): Promise<GenerationResult> {
+  const prompt = `Elimina de la foto: ${promptText}. ${REMOVE_ELEMENT_SUFFIX}`;
+  return runImageEdit([photoDataUri], prompt);
 }
 
 /**

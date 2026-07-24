@@ -64,6 +64,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/icons/google_logo.png
+    - assets/modes/
 
 flutter_launcher_icons:
   android: true

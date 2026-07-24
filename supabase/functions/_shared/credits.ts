@@ -10,8 +10,9 @@ export class InsufficientCreditsError extends Error {
 
 /**
  * Descuenta 1 crédito de forma atómica (lock de fila en user_credits) y dejo
- * rastro en credit_transactions. p_allow_free solo debe ser true para modo
- * Catálogo -- Libertad nunca usa el crédito gratis (regla de negocio).
+ * rastro en credit_transactions. p_allow_free debe ser true en cualquier
+ * modo -- solo hay un crédito gratis por usuario en total (free_credit_used
+ * es un flag global, no por modo), así que da igual cuál lo consuma primero.
  */
 export async function deductCredit(
   admin: ReturnType<typeof supabaseAdmin>,

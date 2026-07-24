@@ -8,6 +8,7 @@ import '../../../core/constants/credits.dart';
 import '../../../core/router/app_routes.dart';
 import '../../../core/theme/verbena_icons.dart';
 import '../../../core/theme/verbena_theme.dart';
+import '../../../core/widgets/confetti_background.dart';
 import '../../../data/models/user_credits.dart';
 import '../../../data/models/verified_photo_summary.dart';
 import '../../../data/repositories/account_repository.dart';
@@ -36,12 +37,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
   void _showSnack(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   String _statusLabel(UserCredits credits) {
     if (credits.isSubscribed) {
-      return credits.activePlanId == PlanIds.semanal ? 'Plan Semanal activo' : 'Plan Mensual activo';
+      return credits.activePlanId == PlanIds.semanal
+          ? 'Plan Semanal activo'
+          : 'Plan Mensual activo';
     }
     return credits.freeCreditUsed
         ? 'Sin suscripción — gratis ya usada'
@@ -55,9 +59,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     }
     setState(() => _busy = true);
     try {
-      final info = await ref.read(purchasesRepositoryProvider).getCustomerInfo();
-      final uri = info.managementURL == null ? null : Uri.tryParse(info.managementURL!);
-      if (uri == null || !await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      final info =
+          await ref.read(purchasesRepositoryProvider).getCustomerInfo();
+      final uri =
+          info.managementURL == null ? null : Uri.tryParse(info.managementURL!);
+      if (uri == null ||
+          !await launchUrl(uri, mode: LaunchMode.externalApplication)) {
         _showSnack('No hemos podido abrir la gestión de tu suscripción.');
       }
     } catch (_) {
@@ -80,13 +87,17 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: Text('Cancelar', style: VerbenaText.body(size: 13.5, weight: FontWeight.w600)),
+            child: Text('Cancelar',
+                style: VerbenaText.body(size: 13.5, weight: FontWeight.w600)),
           ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(true),
             child: Text(
               'Borrar',
-              style: VerbenaText.body(size: 13.5, weight: FontWeight.w700, color: VerbenaColors.terracotta),
+              style: VerbenaText.body(
+                  size: 13.5,
+                  weight: FontWeight.w700,
+                  color: VerbenaColors.terracotta),
             ),
           ),
         ],
@@ -111,14 +122,21 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final creditsAsync = ref.watch(myCreditsProvider);
     return Scaffold(
       backgroundColor: VerbenaColors.background,
-      body: SafeArea(
-        child: creditsAsync.when(
-          loading: () => const Center(child: CircularProgressIndicator(color: VerbenaColors.teal)),
-          error: (err, st) => Center(
-            child: Text('No hemos podido cargar tu perfil.', style: VerbenaText.body()),
+      body: Stack(
+        children: [
+          const ConfettiBackground(),
+          SafeArea(
+            child: creditsAsync.when(
+              loading: () => const Center(
+                  child: CircularProgressIndicator(color: VerbenaColors.teal)),
+              error: (err, st) => Center(
+                child: Text('No hemos podido cargar tu perfil.',
+                    style: VerbenaText.body()),
+              ),
+              data: _buildContent,
+            ),
           ),
-          data: _buildContent,
-        ),
+        ],
       ),
     );
   }
@@ -136,7 +154,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
               child: Row(
                 children: [
-                  VerbenaRoundIconButton(icon: const VerbenaBackChevronIcon(), onTap: () => context.pop()),
+                  VerbenaRoundIconButton(
+                      icon: const VerbenaBackChevronIcon(),
+                      onTap: () => context.pop()),
                   const SizedBox(width: 12),
                   Text('Tu perfil', style: VerbenaText.display(size: 22)),
                 ],
@@ -149,7 +169,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 children: [
                   Container(
                     padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(color: VerbenaColors.teal, borderRadius: BorderRadius.circular(16)),
+                    decoration: BoxDecoration(
+                        color: VerbenaColors.teal,
+                        borderRadius: BorderRadius.circular(16)),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -162,26 +184,33 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                 style: VerbenaText.body(
                                   size: 11,
                                   weight: FontWeight.w600,
-                                  color: VerbenaColors.background.withValues(alpha: 0.75),
+                                  color: VerbenaColors.background
+                                      .withValues(alpha: 0.75),
                                 ).copyWith(letterSpacing: 0.4),
                               ),
                               const SizedBox(height: 2),
                               Text(
                                 _statusLabel(credits),
-                                style: VerbenaText.display(size: 17, color: VerbenaColors.background),
+                                style: VerbenaText.display(
+                                    size: 17, color: VerbenaColors.background),
                               ),
                             ],
                           ),
                         ),
                         ElevatedButton(
-                          onPressed: () => _openManageSubscription(credits.isSubscribed),
+                          onPressed: () =>
+                              _openManageSubscription(credits.isSubscribed),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: VerbenaColors.background,
                             foregroundColor: VerbenaColors.teal,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10)),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 9),
                           ),
-                          child: Text('GESTIONAR', style: VerbenaText.display(size: 11.5, color: VerbenaColors.teal)),
+                          child: Text('GESTIONAR',
+                              style: VerbenaText.display(
+                                  size: 11.5, color: VerbenaColors.teal)),
                         ),
                       ],
                     ),
@@ -209,7 +238,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   const SizedBox(height: 16),
                   Text(
                     'FOTOS VERIFICADAS',
-                    style: VerbenaText.body(size: 12, weight: FontWeight.w600, color: VerbenaColors.textMuted)
+                    style: VerbenaText.body(
+                            size: 12,
+                            weight: FontWeight.w600,
+                            color: VerbenaColors.textMuted)
                         .copyWith(letterSpacing: 0.4),
                   ),
                   const SizedBox(height: 8),
@@ -220,24 +252,34 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: VerbenaColors.textDark.withValues(alpha: 0.25), width: 1.5),
+                        border: Border.all(
+                            color:
+                                VerbenaColors.textDark.withValues(alpha: 0.25),
+                            width: 1.5),
                       ),
                       child: Column(
                         children: [
                           Text(
                             'Suscríbete para guardar tus fotos verificadas y generar más rápido.',
                             textAlign: TextAlign.center,
-                            style: VerbenaText.body(size: 13, color: VerbenaColors.textMuted),
+                            style: VerbenaText.body(
+                                size: 13, color: VerbenaColors.textMuted),
                           ),
                           const SizedBox(height: 8),
                           OutlinedButton(
-                            onPressed: () => context.push(AppRoutes.paywall, extra: 'profile'),
+                            onPressed: () => context.push(AppRoutes.paywall,
+                                extra: 'profile'),
                             style: OutlinedButton.styleFrom(
-                              side: const BorderSide(color: VerbenaColors.teal, width: 2),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+                              side: const BorderSide(
+                                  color: VerbenaColors.teal, width: 2),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10)),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 9),
                             ),
-                            child: Text('VER PLANES', style: VerbenaText.display(size: 12, color: VerbenaColors.teal)),
+                            child: Text('VER PLANES',
+                                style: VerbenaText.display(
+                                    size: 12, color: VerbenaColors.teal)),
                           ),
                         ],
                       ),
@@ -246,7 +288,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   Container(
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: VerbenaColors.textDark.withValues(alpha: 0.12)),
+                      border: Border.all(
+                          color:
+                              VerbenaColors.textDark.withValues(alpha: 0.12)),
                     ),
                     child: Column(
                       children: [
@@ -255,7 +299,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           onTap: () => context.push(AppRoutes.privacyPolicy),
                           showDivider: true,
                         ),
-                        _SettingsRow(label: 'Borrar mis datos', onTap: _confirmDeleteData, showDivider: false),
+                        _SettingsRow(
+                            label: 'Borrar mis datos',
+                            onTap: _confirmDeleteData,
+                            showDivider: false),
                       ],
                     ),
                   ),
@@ -268,22 +315,30 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           padding: const EdgeInsets.all(6),
                           child: Text(
                             'Cancelar suscripción',
-                            style: VerbenaText.body(size: 13.5, weight: FontWeight.w600, color: VerbenaColors.terracotta),
+                            style: VerbenaText.body(
+                                size: 13.5,
+                                weight: FontWeight.w600,
+                                color: VerbenaColors.terracotta),
                           ),
                         ),
                       ),
                     ),
                   ],
-                  if (!credits.isSubscribed && ref.watch(authRepositoryProvider).isAnonymous) ...[
+                  if (!credits.isSubscribed &&
+                      ref.watch(authRepositoryProvider).isAnonymous) ...[
                     const SizedBox(height: 16),
                     Center(
                       child: GestureDetector(
-                        onTap: () => context.push(AppRoutes.accountGate, extra: true),
+                        onTap: () =>
+                            context.push(AppRoutes.accountGate, extra: true),
                         child: Padding(
                           padding: const EdgeInsets.all(6),
                           child: Text(
                             '¿Ya tenías cuenta? Recuperarla',
-                            style: VerbenaText.body(size: 13.5, weight: FontWeight.w600, color: VerbenaColors.teal),
+                            style: VerbenaText.body(
+                                size: 13.5,
+                                weight: FontWeight.w600,
+                                color: VerbenaColors.teal),
                           ),
                         ),
                       ),
@@ -300,7 +355,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 }
 
 class _CreditBox extends StatelessWidget {
-  const _CreditBox({required this.value, required this.label, required this.color});
+  const _CreditBox(
+      {required this.value, required this.label, required this.color});
 
   final String value;
   final String label;
@@ -313,13 +369,16 @@ class _CreditBox extends StatelessWidget {
       decoration: BoxDecoration(
         color: VerbenaColors.card,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: VerbenaColors.textDark.withValues(alpha: 0.15), width: 1.5),
+        border: Border.all(
+            color: VerbenaColors.textDark.withValues(alpha: 0.15), width: 1.5),
       ),
       child: Column(
         children: [
           Text(value, style: VerbenaText.display(size: 20, color: color)),
           const SizedBox(height: 2),
-          Text(label, style: VerbenaText.body(size: 11, color: VerbenaColors.textMuted)),
+          Text(label,
+              style:
+                  VerbenaText.body(size: 11, color: VerbenaColors.textMuted)),
         ],
       ),
     );
@@ -327,7 +386,8 @@ class _CreditBox extends StatelessWidget {
 }
 
 class _SettingsRow extends StatelessWidget {
-  const _SettingsRow({required this.label, required this.onTap, required this.showDivider});
+  const _SettingsRow(
+      {required this.label, required this.onTap, required this.showDivider});
 
   final String label;
   final VoidCallback onTap;
@@ -341,7 +401,9 @@ class _SettingsRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         decoration: showDivider
             ? BoxDecoration(
-                border: Border(bottom: BorderSide(color: VerbenaColors.textDark.withValues(alpha: 0.1))),
+                border: Border(
+                    bottom: BorderSide(
+                        color: VerbenaColors.textDark.withValues(alpha: 0.1))),
               )
             : null,
         child: Row(
@@ -395,11 +457,13 @@ class _VerifiedPhotosGrid extends ConsumerWidget {
               borderRadius: BorderRadius.circular(10),
               child: Consumer(
                 builder: (context, ref, _) {
-                  final urlAsync = ref.watch(verifiedPhotoUrlProvider(photo.storagePath));
+                  final urlAsync =
+                      ref.watch(verifiedPhotoUrlProvider(photo.storagePath));
                   return urlAsync.when(
                     loading: () => Container(color: VerbenaColors.card),
                     error: (err, st) => Container(color: VerbenaColors.card),
-                    data: (url) => CachedNetworkImage(imageUrl: url, fit: BoxFit.cover),
+                    data: (url) =>
+                        CachedNetworkImage(imageUrl: url, fit: BoxFit.cover),
                   );
                 },
               ),

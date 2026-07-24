@@ -8,6 +8,7 @@ import '../../../core/constants/credits.dart';
 import '../../../core/router/app_routes.dart';
 import '../../../core/theme/verbena_icons.dart';
 import '../../../core/theme/verbena_theme.dart';
+import '../../../core/widgets/confetti_background.dart';
 import '../../../data/models/generation_source.dart';
 import '../../../data/repositories/credits_repository.dart';
 
@@ -33,17 +34,22 @@ class HomeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
       backgroundColor: VerbenaColors.background,
-      body: SafeArea(
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: const [
-              _HomeHeader(),
-              _CreditsCard(),
-              _ModeGrid(),
-            ],
+      body: Stack(
+        children: [
+          const ConfettiBackground(),
+          SafeArea(
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: const [
+                  _HomeHeader(),
+                  _CreditsCard(),
+                  _ModeGrid(),
+                ],
+              ),
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -78,7 +84,8 @@ class _HomeHeaderState extends State<_HomeHeader> {
       context.push(AppRoutes.adminLogin);
       return;
     }
-    _resetTimer = Timer(const Duration(seconds: 2), () => _avatarLongPressCount = 0);
+    _resetTimer =
+        Timer(const Duration(seconds: 2), () => _avatarLongPressCount = 0);
   }
 
   @override
@@ -95,7 +102,8 @@ class _HomeHeaderState extends State<_HomeHeader> {
             child: Container(
               width: 36,
               height: 36,
-              decoration: const BoxDecoration(color: VerbenaColors.teal, shape: BoxShape.circle),
+              decoration: const BoxDecoration(
+                  color: VerbenaColors.teal, shape: BoxShape.circle),
               alignment: Alignment.center,
               child: const VerbenaPersonIcon(size: 17),
             ),
@@ -123,7 +131,8 @@ class _CreditsCard extends ConsumerWidget {
             children: [
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                 decoration: BoxDecoration(
                   color: VerbenaColors.teal,
                   borderRadius: BorderRadius.circular(16),
@@ -146,15 +155,18 @@ class _CreditsCard extends ConsumerWidget {
                       children: [
                         Text(
                           '${credits.tierUsed}/${credits.tierTotal}',
-                          style: VerbenaText.display(size: 24, color: VerbenaColors.background),
+                          style: VerbenaText.display(
+                              size: 24, color: VerbenaColors.background),
                         ),
-                        if (_cadenceLabel(credits.activePlanId) case final label?) ...[
+                        if (_cadenceLabel(credits.activePlanId)
+                            case final label?) ...[
                           const SizedBox(width: 6),
                           Text(
                             label,
                             style: VerbenaText.body(
                               size: 13,
-                              color: VerbenaColors.background.withValues(alpha: 0.85),
+                              color: VerbenaColors.background
+                                  .withValues(alpha: 0.85),
                               weight: FontWeight.w500,
                             ),
                           ),
@@ -169,11 +181,13 @@ class _CreditsCard extends ConsumerWidget {
                   top: -10,
                   right: 10,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                     decoration: BoxDecoration(
                       color: VerbenaColors.terracotta,
                       borderRadius: BorderRadius.circular(999),
-                      border: Border.all(color: VerbenaColors.background, width: 2),
+                      border:
+                          Border.all(color: VerbenaColors.background, width: 2),
                     ),
                     child: Text(
                       '+${credits.extraCredits} extra',
@@ -194,11 +208,17 @@ class _CreditsCard extends ConsumerWidget {
 }
 
 class _ModeInfo {
-  const _ModeInfo({required this.title, required this.description, required this.source});
+  const _ModeInfo({
+    required this.title,
+    required this.description,
+    required this.source,
+    required this.imagePath,
+  });
 
   final String title;
   final String description;
   final GenerationSource source;
+  final String imagePath;
 }
 
 /// FASE 0: sustituye a las pestañas Catálogo/Libertad -- el código de
@@ -209,25 +229,33 @@ const _modes = [
   _ModeInfo(
     title: 'Añadir algo',
     description: 'Pon un objeto, ropa o accesorio en tu foto',
-    source: AddElementSource(),
+    source: AddElementSource(''),
+    imagePath: 'assets/modes/add_element.jpeg',
   ),
   _ModeInfo(
     title: 'Eliminar algo',
     description: 'Quita algo de tu foto, describiéndolo o marcándolo',
     source: RemoveElementSource(),
+    imagePath: 'assets/modes/remove_element.jpeg',
   ),
   _ModeInfo(
     title: 'Cambiar fondo',
     description: 'Cambia el fondo de tu foto por otro distinto',
     source: ChangeBackgroundSource(),
+    imagePath: 'assets/modes/change_background.jpeg',
   ),
   _ModeInfo(
     title: 'Probar un look',
     description: 'Pruébate una prenda de ropa en tu foto',
     source: TryOnSource(),
+    imagePath: 'assets/modes/try_on.jpeg',
   ),
 ];
 
+/// Fichas grandes en lista vertical (no grid) -- con 4 fichas de este tamaño
+/// caben ~2 en pantalla y el resto se ve haciendo scroll (ya está dentro del
+/// SingleChildScrollView de HomeScreen). Prioriza que la imagen se vea grande
+/// para identificar el modo de un vistazo, en vez de encajar las 4 a la vez.
 class _ModeGrid extends StatelessWidget {
   const _ModeGrid();
 
@@ -237,33 +265,10 @@ class _ModeGrid extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
       child: Column(
         children: [
-          _ModeRow(modes: [_modes[0], _modes[1]]),
-          const SizedBox(height: 14),
-          _ModeRow(modes: [_modes[2], _modes[3]]),
-        ],
-      ),
-    );
-  }
-}
-
-/// IntrinsicHeight + stretch en vez de GridView con childAspectRatio fijo:
-/// así la imagen de cada ficha es exactamente 1:1 (AspectRatio en _ModeCard)
-/// y la altura de la ficha sale del contenido real, sin un número mágico que
-/// aproxime "imagen + bloque de texto".
-class _ModeRow extends StatelessWidget {
-  const _ModeRow({required this.modes});
-
-  final List<_ModeInfo> modes;
-
-  @override
-  Widget build(BuildContext context) {
-    return IntrinsicHeight(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(child: _ModeCard(mode: modes[0])),
-          const SizedBox(width: 14),
-          Expanded(child: _ModeCard(mode: modes[1])),
+          for (final mode in _modes) ...[
+            _ModeCard(mode: mode),
+            if (mode != _modes.last) const SizedBox(height: 16),
+          ],
         ],
       ),
     );
@@ -275,69 +280,57 @@ class _ModeCard extends StatelessWidget {
 
   final _ModeInfo mode;
 
+  void _onTap(BuildContext context) {
+    // "Eliminar algo" tiene un paso previo de elegir sub-modo (por texto /
+    // marcando la zona) -- el resto de modos van directos a PhotoSelect.
+    if (mode.source is RemoveElementSource) {
+      context.push(AppRoutes.removeElementMode);
+      return;
+    }
+    context.push(AppRoutes.photoSelect, extra: mode.source);
+  }
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: () => context.push(AppRoutes.photoSelect, extra: mode.source),
+      onTap: () => _onTap(context),
       child: Container(
         clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
           color: VerbenaColors.card,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: VerbenaColors.textDark.withValues(alpha: 0.12), width: 1.5),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+              color: VerbenaColors.textDark.withValues(alpha: 0.12),
+              width: 1.5),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const AspectRatio(aspectRatio: 1, child: _ModeImagePlaceholder()),
+            SizedBox(
+              width: double.infinity,
+              height: 190,
+              child: Image.asset(mode.imagePath, fit: BoxFit.cover),
+            ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(mode.title, style: VerbenaText.body(size: 14, weight: FontWeight.w700)),
-                  const SizedBox(height: 3),
+                  Text(mode.title,
+                      style:
+                          VerbenaText.body(size: 17, weight: FontWeight.w700)),
+                  const SizedBox(height: 4),
                   Text(
                     mode.description,
-                    style: VerbenaText.body(size: 11.5, color: VerbenaColors.textMuted).copyWith(height: 1.25),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                    style: VerbenaText.body(
+                            size: 13, color: VerbenaColors.textMuted)
+                        .copyWith(height: 1.3),
                   ),
                 ],
               ),
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// Sustituye a la imagen real de cada ficha hasta que la tengamos -- no hay
-/// ningún asset "próximamente" en el repo todavía, así que se genera aquí
-/// en vez de depender de un archivo que no existe. Cuando llegue la imagen
-/// real de cada modo, esto se sustituye por un Image.asset/CachedNetworkImage
-/// por ficha.
-class _ModeImagePlaceholder extends StatelessWidget {
-  const _ModeImagePlaceholder();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      color: VerbenaColors.teal.withValues(alpha: 0.12),
-      alignment: Alignment.center,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.auto_awesome_rounded, size: 26, color: VerbenaColors.teal),
-          const SizedBox(height: 6),
-          Text(
-            'PRÓXIMAMENTE',
-            style: VerbenaText.body(size: 10, weight: FontWeight.w700, color: VerbenaColors.teal)
-                .copyWith(letterSpacing: 0.6),
-          ),
-        ],
       ),
     );
   }

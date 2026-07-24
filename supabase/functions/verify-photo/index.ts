@@ -3,9 +3,9 @@
 // Verifica la foto que sube el usuario (nunca la plantilla, esa la controla
 // el admin). Se ejecuta UNA VEZ por archivo exacto -- identificado por su
 // hash -- y el resultado se reutiliza para todas las generaciones de la
-// sesión, en ambos modos (Catálogo y Libertad). No se descuenta ningún
-// crédito aquí bajo ninguna circunstancia: eso lo hacen generate-catalog y
-// generate-libertad, y solo después de comprobar que hay una verificación
+// sesión, en cualquier modo (Catálogo, Añadir algo, ...). No se descuenta
+// ningún crédito aquí bajo ninguna circunstancia: eso lo hacen las funciones
+// generate-*, y solo después de comprobar que hay una verificación
 // aprobada.
 //
 // Request:  POST, Authorization: Bearer <supabase JWT, anónimo vale>

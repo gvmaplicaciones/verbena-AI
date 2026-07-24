@@ -13,31 +13,28 @@ class CatalogSource extends GenerationSource {
   final Template template;
 }
 
-class LibertadSource extends GenerationSource {
-  const LibertadSource(this.prompt);
+/// Modo "Añadir algo" (grid de Home). FASE 1: conectado a generación real
+/// (generate-add-element) -- describe qué objeto/prenda/accesorio añadir a
+/// la foto, igual que el prompt libre que tenía el extinto modo Libertad.
+class AddElementSource extends GenerationSource {
+  const AddElementSource(this.prompt);
 
   final String prompt;
-}
-
-/// Modo "Añadir algo" (grid de Home, FASE 0). Sin campos propios todavía --
-/// se añaden (p.ej. descripción del objeto) cuando se conecte a un backend
-/// real en una fase siguiente. Por ahora es un modo "Próximamente", ver
-/// GenerationSourceStatus.isComingSoon más abajo.
-class AddElementSource extends GenerationSource {
-  const AddElementSource();
 }
 
 /// Cómo señala el usuario qué eliminar de la foto: descripción en texto o
 /// marcando la zona a mano sobre la imagen (máscara).
 enum RemoveTargetMode { text, mask }
 
-/// Modo "Eliminar algo" (grid de Home, FASE 0). `mode` ya modela cómo se
-/// señalará qué quitar, pero ninguna pantalla lo lee todavía -- se conecta
-/// junto con el resto del modo en una fase siguiente.
+/// Modo "Eliminar algo" (grid de Home). FASE 2a: sub-modo "Por texto"
+/// conectado a generación real (generate-remove-element) -- describe qué
+/// quitar de la foto. `mode: .mask` ("Selecciona lo que quieres borrar")
+/// sigue sin implementar, ver RemoveModeSelectScreen.
 class RemoveElementSource extends GenerationSource {
-  const RemoveElementSource({this.mode = RemoveTargetMode.text});
+  const RemoveElementSource({this.mode = RemoveTargetMode.text, this.prompt = ''});
 
   final RemoveTargetMode mode;
+  final String prompt;
 }
 
 /// Modo "Cambiar fondo" (grid de Home, FASE 0). Sin campos propios todavía.
@@ -56,11 +53,9 @@ class TryOnSource extends GenerationSource {
 /// verdad en vez de repetir `is AddElementSource || is ...` sueltos.
 extension GenerationSourceStatus on GenerationSource {
   bool get isComingSoon => switch (this) {
-        CatalogSource() || LibertadSource() => false,
-        AddElementSource() ||
-        RemoveElementSource() ||
-        ChangeBackgroundSource() ||
-        TryOnSource() =>
-          true,
+        CatalogSource() || AddElementSource() => false,
+        RemoveElementSource(mode: RemoveTargetMode.text) => false,
+        RemoveElementSource(mode: RemoveTargetMode.mask) => true,
+        ChangeBackgroundSource() || TryOnSource() => true,
       };
 }

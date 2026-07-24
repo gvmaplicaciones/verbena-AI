@@ -2,7 +2,7 @@
 
 App de generación de fotos con IA para el mercado español. El usuario sube
 su foto y genera imágenes suyas en escenas predefinidas (modo **Catálogo**) o
-mediante texto libre (modo **Libertad**).
+mediante texto libre para añadir elementos (modo **Añadir algo**).
 
 Estado: Fase B (esquema de Supabase, estructura base de Flutter, y la Edge
 Function `verify-photo`). El resto de Edge Functions y la UI pixel-perfect
@@ -64,8 +64,9 @@ runtime de Edge Functions a partir de `supabase/migrations` y
 ## Decisiones de arquitectura relevantes
 
 - **Créditos**: dos contadores por usuario (`tier_credits`, se resetea cada
-  renovación; `extra_credits`, no caduca). Ambos modos (Catálogo/Libertad)
-  cuestan 1 crédito; se consume tier antes que extra.
+  renovación; `extra_credits`, no caduca). Cualquier modo de generación
+  cuesta 1 crédito; se consume tier antes que extra. Hay además una única
+  generación gratis por usuario, válida en cualquier modo.
 - **Verificación de foto**: una vez por hash exacto de archivo, nunca por
   generación. Se descuenta crédito solo después de verificar con éxito.
 - **Retención**: la foto verificada solo se persiste en Storage si el

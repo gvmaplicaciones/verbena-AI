@@ -7,9 +7,10 @@ GenerationCreditSource? _creditSourceFromString(String? value) => switch (value)
       _ => null,
     };
 
-/// Resultado de generate-catalog/generate-libertad. `status: 'rejected'` solo
-/// puede darse en modo Libertad (el filtro de contenido corre sobre imagen +
-/// prompt); Catálogo nunca rechaza porque la plantilla ya está pre-aprobada.
+/// Resultado de generate-catalog/generate-add-element. `status: 'rejected'`
+/// solo puede darse en modos con prompt libre (el filtro de contenido corre
+/// sobre el resultado); Catálogo nunca rechaza porque la plantilla ya está
+/// pre-aprobada.
 class GenerationOutcome {
   final String status; // 'completed' | 'rejected'
   final String generationId;
