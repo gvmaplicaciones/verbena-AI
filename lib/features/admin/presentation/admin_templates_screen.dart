@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/router/app_routes.dart';
 import '../../../core/theme/verbena_theme.dart';
@@ -78,6 +79,15 @@ class _AdminTemplatesScreenState extends ConsumerState<AdminTemplatesScreen> {
     try {
       await ref.read(adminRepositoryProvider).deleteTemplate(template.id, template.imageStoragePath);
       ref.invalidate(adminTemplatesProvider);
+    } on PostgrestException catch (e) {
+      // code 23503: violación de generations_template_id_fkey -- ya hay
+      // generaciones que referencian esta plantilla (ver FLUTTER-7). No
+      // se puede borrar, solo desactivar.
+      if (!mounted) return;
+      final message = e.code == '23503'
+          ? 'No se puede borrar: ya hay generaciones hechas con esta plantilla. Desactívala en su lugar.'
+          : 'No se ha podido borrar la plantilla.';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
     } finally {
       if (mounted) setState(() => _busy = false);
     }

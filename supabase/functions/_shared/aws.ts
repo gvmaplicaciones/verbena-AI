@@ -26,7 +26,22 @@ export interface CelebrityCheckResult {
   raw: unknown;
 }
 
-/** true si Rekognition reconoce a alguna celebridad/figura pública en la foto. */
+// Umbral mínimo de MatchConfidence (0-100) para contar una entrada de
+// CelebrityFaces como detección real. Antes se marcaba "figura pública
+// detectada" con cualquier entrada, por baja que fuera su confianza, lo que
+// causaba falsos positivos (rechazo de fotos de personas normales con un
+// parecido lejano a alguien famoso). 90% es deliberadamente conservador:
+// preferimos pecar de cautelosos, porque el coste de un falso negativo aquí
+// (dejar pasar a una figura pública real) es peor que el de un falso
+// positivo ocasional (rechazar a alguien que no lo es). Ajustable con datos
+// reales según la proporción de falsos positivos/negativos que se observe.
+const CELEBRITY_MATCH_CONFIDENCE_THRESHOLD = 90;
+
+interface CelebrityFace {
+  MatchConfidence?: number;
+}
+
+/** true si Rekognition reconoce a alguna celebridad/figura pública en la foto con confianza suficiente. */
 export async function runCelebrityCheck(imageBytes: Uint8Array): Promise<CelebrityCheckResult> {
   const body = JSON.stringify({ Image: { Bytes: encodeBase64(imageBytes) } });
   const raw = await withRetry(
@@ -34,8 +49,11 @@ export async function runCelebrityCheck(imageBytes: Uint8Array): Promise<Celebri
     (err) => err instanceof AwsThrottleError,
     "Rekognition RecognizeCelebrities",
   );
-  const celebrityFaces = (raw as { CelebrityFaces?: unknown[] }).CelebrityFaces ?? [];
-  return { detected: celebrityFaces.length > 0, raw };
+  const celebrityFaces = (raw as { CelebrityFaces?: CelebrityFace[] }).CelebrityFaces ?? [];
+  const detected = celebrityFaces.some(
+    (face) => (face.MatchConfidence ?? 0) >= CELEBRITY_MATCH_CONFIDENCE_THRESHOLD,
+  );
+  return { detected, raw };
 }
 
 // Rekognition (protocolo JSON de AWS) devuelve saturación como HTTP 400 con

@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -10,9 +9,7 @@ import '../../../core/router/app_routes.dart';
 import '../../../core/theme/verbena_icons.dart';
 import '../../../core/theme/verbena_theme.dart';
 import '../../../data/models/generation_source.dart';
-import '../../../data/models/template.dart';
 import '../../../data/repositories/credits_repository.dart';
-import '../../../data/repositories/templates_repository.dart';
 
 /// El handoff traía "esta semana" fijo en la tarjeta de créditos aunque el
 /// plan activo fuera mensual -- bug de contenido, no de diseño. La cadencia
@@ -29,39 +26,21 @@ String? _cadenceLabel(String? activePlanId) {
   }
 }
 
-class HomeScreen extends ConsumerStatefulWidget {
+class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
   @override
-  ConsumerState<HomeScreen> createState() => _HomeScreenState();
-}
-
-class _HomeScreenState extends ConsumerState<HomeScreen> {
-  int _tab = 0;
-  String? _selectedCategoryId;
-
-  @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
       backgroundColor: VerbenaColors.background,
       body: SafeArea(
         child: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const _HomeHeader(),
-              const _CreditsCard(),
-              _HomeTabs(
-                active: _tab,
-                onChanged: (i) => setState(() => _tab = i),
-              ),
-              if (_tab == 0)
-                _CatalogTab(
-                  selectedCategoryId: _selectedCategoryId,
-                  onCategorySelected: (id) => setState(() => _selectedCategoryId = id),
-                )
-              else
-                const _LibertadTab(),
+            children: const [
+              _HomeHeader(),
+              _CreditsCard(),
+              _ModeGrid(),
             ],
           ),
         ),
@@ -214,307 +193,149 @@ class _CreditsCard extends ConsumerWidget {
   }
 }
 
-class _HomeTabs extends StatelessWidget {
-  const _HomeTabs({required this.active, required this.onChanged});
+class _ModeInfo {
+  const _ModeInfo({required this.title, required this.description, required this.source});
 
-  final int active;
-  final ValueChanged<int> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
-      child: Container(
-        padding: const EdgeInsets.all(5),
-        decoration: BoxDecoration(
-          color: VerbenaColors.textDark.withValues(alpha: 0.06),
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Row(
-          children: [
-            Expanded(child: _TabButton(label: 'Catálogo', active: active == 0, onTap: () => onChanged(0))),
-            const SizedBox(width: 10),
-            Expanded(child: _TabButton(label: 'Libertad', active: active == 1, onTap: () => onChanged(1))),
-          ],
-        ),
-      ),
-    );
-  }
+  final String title;
+  final String description;
+  final GenerationSource source;
 }
 
-class _TabButton extends StatelessWidget {
-  const _TabButton({required this.label, required this.active, required this.onTap});
+/// FASE 0: sustituye a las pestañas Catálogo/Libertad -- el código de
+/// Catálogo (edge functions, tablas, pantallas admin, TemplatesRepository)
+/// no se toca, solo se le quita el acceso desde Home. Se retoma modo a modo
+/// en fases siguientes (ver GenerationSourceStatus.isComingSoon).
+const _modes = [
+  _ModeInfo(
+    title: 'Añadir algo',
+    description: 'Pon un objeto, ropa o accesorio en tu foto',
+    source: AddElementSource(),
+  ),
+  _ModeInfo(
+    title: 'Eliminar algo',
+    description: 'Quita algo de tu foto, describiéndolo o marcándolo',
+    source: RemoveElementSource(),
+  ),
+  _ModeInfo(
+    title: 'Cambiar fondo',
+    description: 'Cambia el fondo de tu foto por otro distinto',
+    source: ChangeBackgroundSource(),
+  ),
+  _ModeInfo(
+    title: 'Probar un look',
+    description: 'Pruébate una prenda de ropa en tu foto',
+    source: TryOnSource(),
+  ),
+];
 
-  final String label;
-  final bool active;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 11),
-        decoration: BoxDecoration(
-          color: active ? VerbenaColors.teal : Colors.transparent,
-          borderRadius: BorderRadius.circular(11),
-        ),
-        alignment: Alignment.center,
-        child: Text(
-          label.toUpperCase(),
-          style: VerbenaText.display(
-            size: 14,
-            color: active ? VerbenaColors.background : VerbenaColors.textDark,
-            letterSpacing: 0.4,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _CatalogTab extends ConsumerWidget {
-  const _CatalogTab({
-    required this.selectedCategoryId,
-    required this.onCategorySelected,
-  });
-
-  final String? selectedCategoryId;
-  final ValueChanged<String?> onCategorySelected;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final categoriesAsync = ref.watch(templateCategoriesProvider);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 4),
-          child: categoriesAsync.when(
-            loading: () => const SizedBox(height: 48),
-            error: (err, st) => Text('No se pudieron cargar las categorías.', style: VerbenaText.body()),
-            data: (categories) => _CategoryDropdown(
-              categories: categories,
-              selectedCategoryId: selectedCategoryId,
-              onChanged: onCategorySelected,
-            ),
-          ),
-        ),
-        _TemplatesGrid(categoryId: selectedCategoryId),
-      ],
-    );
-  }
-}
-
-/// Selector desplegable con "TODOS" (value null) por delante de las
-/// categorías reales -- antes la fila de chips no dejaba claro qué
-/// categorías existían ni había forma de ver todas las plantillas a la vez.
-class _CategoryDropdown extends StatelessWidget {
-  const _CategoryDropdown({
-    required this.categories,
-    required this.selectedCategoryId,
-    required this.onChanged,
-  });
-
-  final List<TemplateCategory> categories;
-  final String? selectedCategoryId;
-  final ValueChanged<String?> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: BoxDecoration(
-        color: VerbenaColors.card,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: VerbenaColors.textDark.withValues(alpha: 0.15), width: 1.5),
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String?>(
-          value: selectedCategoryId,
-          isExpanded: true,
-          icon: const Icon(Icons.keyboard_arrow_down_rounded, color: VerbenaColors.textDark),
-          borderRadius: BorderRadius.circular(14),
-          dropdownColor: VerbenaColors.card,
-          items: [
-            DropdownMenuItem<String?>(
-              value: null,
-              child: Text(
-                'TODOS',
-                style: VerbenaText.body(size: 14.5, weight: FontWeight.w700, color: VerbenaColors.textDark),
-              ),
-            ),
-            ...categories.map(
-              (category) => DropdownMenuItem<String?>(
-                value: category.id,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      category.label,
-                      style: VerbenaText.body(size: 14.5, weight: FontWeight.w600, color: VerbenaColors.textDark),
-                    ),
-                    if (category.badgeText != null) ...[
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: VerbenaColors.terracotta,
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Text(
-                          category.badgeText!,
-                          style: VerbenaText.body(size: 9.5, weight: FontWeight.w700, color: VerbenaColors.background),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          ],
-          onChanged: onChanged,
-        ),
-      ),
-    );
-  }
-}
-
-class _TemplatesGrid extends ConsumerWidget {
-  const _TemplatesGrid({required this.categoryId});
-
-  final String? categoryId;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final templatesAsync = ref.watch(templatesByCategoryProvider(categoryId));
-
-    return templatesAsync.when(
-      loading: () => const Padding(
-        padding: EdgeInsets.all(40),
-        child: Center(child: CircularProgressIndicator()),
-      ),
-      error: (err, st) => Padding(
-        padding: const EdgeInsets.all(20),
-        child: Text('No se pudieron cargar las plantillas.', style: VerbenaText.body()),
-      ),
-      data: (templates) {
-        if (templates.isEmpty) {
-          return Padding(
-            padding: const EdgeInsets.all(40),
-            child: Center(
-              child: Text('No hay plantillas en esta categoría.', style: VerbenaText.body()),
-            ),
-          );
-        }
-        return LayoutBuilder(
-          builder: (context, constraints) {
-            final columnWidth = (constraints.maxWidth - 40 - 14) / 2;
-            const estimatedRowHeight = 130 + 6 + 34;
-            final aspectRatio = columnWidth / estimatedRowHeight;
-            return GridView.builder(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                mainAxisSpacing: 14,
-                crossAxisSpacing: 14,
-                childAspectRatio: aspectRatio,
-              ),
-              itemCount: templates.length,
-              itemBuilder: (context, i) => _TemplateCard(template: templates[i]),
-            );
-          },
-        );
-      },
-    );
-  }
-}
-
-class _TemplateCard extends ConsumerWidget {
-  const _TemplateCard({required this.template});
-
-  final Template template;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final urlAsync = ref.watch(templateImageUrlProvider(template.imageStoragePath));
-    return GestureDetector(
-      onTap: () => context.push(AppRoutes.photoSelect, extra: CatalogSource(template)),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: SizedBox(
-              height: 130,
-              width: double.infinity,
-              child: urlAsync.when(
-                loading: () => Container(color: VerbenaColors.card),
-                error: (err, st) => Container(color: VerbenaColors.card),
-                data: (url) => CachedNetworkImage(
-                  imageUrl: url,
-                  fit: BoxFit.cover,
-                  placeholder: (context, url) => Container(color: VerbenaColors.card),
-                  errorWidget: (context, url, error) => Container(color: VerbenaColors.card),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            template.name,
-            style: VerbenaText.body(size: 13, weight: FontWeight.w600).copyWith(height: 1.25),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _LibertadTab extends StatelessWidget {
-  const _LibertadTab();
+class _ModeGrid extends StatelessWidget {
+  const _ModeGrid();
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
       child: Column(
+        children: [
+          _ModeRow(modes: [_modes[0], _modes[1]]),
+          const SizedBox(height: 14),
+          _ModeRow(modes: [_modes[2], _modes[3]]),
+        ],
+      ),
+    );
+  }
+}
+
+/// IntrinsicHeight + stretch en vez de GridView con childAspectRatio fijo:
+/// así la imagen de cada ficha es exactamente 1:1 (AspectRatio en _ModeCard)
+/// y la altura de la ficha sale del contenido real, sin un número mágico que
+/// aproxime "imagen + bloque de texto".
+class _ModeRow extends StatelessWidget {
+  const _ModeRow({required this.modes});
+
+  final List<_ModeInfo> modes;
+
+  @override
+  Widget build(BuildContext context) {
+    return IntrinsicHeight(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: VerbenaColors.card,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: VerbenaColors.textDark.withValues(alpha: 0.12), width: 1.5),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Describe lo que quieres', style: VerbenaText.display(size: 17)),
-                const SizedBox(height: 8),
-                Text(
-                  'Primero elige una foto y luego nos cuentas qué quieres que hagamos con ella.',
-                  style: VerbenaText.body(size: 13.5, color: VerbenaColors.textMuted),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 14),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () => context.push(AppRoutes.photoSelect, extra: const LibertadSource('')),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 15),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                textStyle: VerbenaText.display(size: 15, color: VerbenaColors.background, letterSpacing: 0.4),
+          Expanded(child: _ModeCard(mode: modes[0])),
+          const SizedBox(width: 14),
+          Expanded(child: _ModeCard(mode: modes[1])),
+        ],
+      ),
+    );
+  }
+}
+
+class _ModeCard extends StatelessWidget {
+  const _ModeCard({required this.mode});
+
+  final _ModeInfo mode;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () => context.push(AppRoutes.photoSelect, extra: mode.source),
+      child: Container(
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: VerbenaColors.card,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: VerbenaColors.textDark.withValues(alpha: 0.12), width: 1.5),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const AspectRatio(aspectRatio: 1, child: _ModeImagePlaceholder()),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(mode.title, style: VerbenaText.body(size: 14, weight: FontWeight.w700)),
+                  const SizedBox(height: 3),
+                  Text(
+                    mode.description,
+                    style: VerbenaText.body(size: 11.5, color: VerbenaColors.textMuted).copyWith(height: 1.25),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
               ),
-              child: const Text('CONTINUAR'),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Sustituye a la imagen real de cada ficha hasta que la tengamos -- no hay
+/// ningún asset "próximamente" en el repo todavía, así que se genera aquí
+/// en vez de depender de un archivo que no existe. Cuando llegue la imagen
+/// real de cada modo, esto se sustituye por un Image.asset/CachedNetworkImage
+/// por ficha.
+class _ModeImagePlaceholder extends StatelessWidget {
+  const _ModeImagePlaceholder();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      color: VerbenaColors.teal.withValues(alpha: 0.12),
+      alignment: Alignment.center,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.auto_awesome_rounded, size: 26, color: VerbenaColors.teal),
+          const SizedBox(height: 6),
+          Text(
+            'PRÓXIMAMENTE',
+            style: VerbenaText.body(size: 10, weight: FontWeight.w700, color: VerbenaColors.teal)
+                .copyWith(letterSpacing: 0.6),
           ),
         ],
       ),

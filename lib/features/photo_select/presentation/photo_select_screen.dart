@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
@@ -58,6 +59,10 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
   Uint8List? _pendingBytes;
   String? _pendingContentType;
   String? _pendingSessionId;
+  // Solo se rellena cuando la foto principal viene de "Mis fotos
+  // verificadas" (sin bytes locales) -- permite previsualizarla en el paso
+  // del prompt vía verifiedPhotoUrlProvider, igual que en _RecentPhotosSection.
+  String? _pendingStoragePath;
 
   // Segunda foto opcional de modo Libertad ("cambia esto por esto otro") --
   // siempre bytes recién elegidos, nunca una sesión ya verificada (a
@@ -79,6 +84,10 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
     return switch (source) {
       CatalogSource() => 'Vamos a meterte en: ${source.template.name}',
       LibertadSource() => 'Elige una foto para empezar',
+      AddElementSource() => 'Elige una foto para añadir algo',
+      RemoveElementSource() => 'Elige una foto para eliminar algo',
+      ChangeBackgroundSource() => 'Elige una foto para cambiar el fondo',
+      TryOnSource() => 'Elige una foto para probarte un look',
     };
   }
 
@@ -89,6 +98,7 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
         _pendingBytes = null;
         _pendingContentType = null;
         _pendingSessionId = null;
+        _pendingStoragePath = null;
         _pendingSecondBytes = null;
         _pendingSecondContentType = null;
       });
@@ -109,6 +119,8 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
         _pendingSecondBytes = bytes;
         _pendingSecondContentType = _mimeFromPath(file.path);
       });
+    } on PlatformException catch (e) {
+      if (mounted) _showPickerError(e);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -130,9 +142,18 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
       final bytes = await file.readAsBytes();
       if (!mounted) return;
       _onPhotoChosen(bytes: bytes, contentType: _mimeFromPath(file.path));
+    } on PlatformException catch (e) {
+      if (mounted) _showPickerError(e);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  void _showPickerError(PlatformException e) {
+    final message = e.code == 'camera_access_denied'
+        ? 'Activa el permiso de cámara para VerbenAI desde los ajustes del móvil.'
+        : 'No hemos podido acceder a la foto. Inténtalo de nuevo.';
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
   void _onPhotoChosen({required Uint8List bytes, required String contentType}) {
@@ -141,6 +162,7 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
         _pendingBytes = bytes;
         _pendingContentType = contentType;
         _pendingSessionId = null;
+        _pendingStoragePath = null;
         _stage = _Stage.enterPrompt;
       });
       return;
@@ -170,6 +192,7 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
           _pendingSessionId = photoSessionId;
           _pendingBytes = null;
           _pendingContentType = null;
+          _pendingStoragePath = photo.storagePath;
           _stage = _Stage.enterPrompt;
         });
         return;
@@ -262,6 +285,8 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
                     ? _LibertadPromptStep(
                         controller: _promptController,
                         onSubmit: _submitLibertadPrompt,
+                        primaryPhotoBytes: _pendingBytes,
+                        primaryPhotoStoragePath: _pendingStoragePath,
                         secondPhotoBytes: _pendingSecondBytes,
                         onPickSecondPhoto: _pickSecondFrom,
                         onRemoveSecondPhoto: _removeSecondPhoto,
@@ -392,6 +417,8 @@ class _LibertadPromptStep extends StatelessWidget {
   const _LibertadPromptStep({
     required this.controller,
     required this.onSubmit,
+    required this.primaryPhotoBytes,
+    required this.primaryPhotoStoragePath,
     required this.secondPhotoBytes,
     required this.onPickSecondPhoto,
     required this.onRemoveSecondPhoto,
@@ -399,6 +426,11 @@ class _LibertadPromptStep extends StatelessWidget {
 
   final TextEditingController controller;
   final VoidCallback onSubmit;
+  // Uno de los dos, nunca ambos: bytes si se acaba de elegir de cámara/
+  // galería, storagePath si viene de "Mis fotos verificadas" (ver
+  // _pickRecentPhoto/_onPhotoChosen en PhotoSelectScreen).
+  final Uint8List? primaryPhotoBytes;
+  final String? primaryPhotoStoragePath;
   final Uint8List? secondPhotoBytes;
   final ValueChanged<ImageSource> onPickSecondPhoto;
   final VoidCallback onRemoveSecondPhoto;
@@ -463,6 +495,8 @@ class _LibertadPromptStep extends StatelessWidget {
             },
           ),
         ),
+        const SizedBox(height: 14),
+        _SelectedPhotoPreview(bytes: primaryPhotoBytes, storagePath: primaryPhotoStoragePath),
         const SizedBox(height: 14),
         TextField(
           controller: controller,
@@ -562,6 +596,58 @@ class _LibertadPromptStep extends StatelessWidget {
           },
         ),
       ],
+    );
+  }
+}
+
+/// Previsualiza la foto principal ya elegida, encima del prompt -- bytes
+/// locales si viene de cámara/galería, o `verifiedPhotoUrlProvider` (misma
+/// fuente que _RecentPhotosSection) si viene de "Mis fotos verificadas".
+class _SelectedPhotoPreview extends StatelessWidget {
+  const _SelectedPhotoPreview({required this.bytes, required this.storagePath});
+
+  final Uint8List? bytes;
+  final String? storagePath;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget thumbnail;
+    if (bytes != null) {
+      thumbnail = Image.memory(bytes!, fit: BoxFit.cover);
+    } else if (storagePath != null) {
+      thumbnail = Consumer(
+        builder: (context, ref, _) {
+          final urlAsync = ref.watch(verifiedPhotoUrlProvider(storagePath!));
+          return urlAsync.when(
+            loading: () => Container(color: VerbenaColors.card),
+            error: (err, st) => Container(color: VerbenaColors.card),
+            data: (url) => CachedNetworkImage(imageUrl: url, fit: BoxFit.cover),
+          );
+        },
+      );
+    } else {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: VerbenaColors.card,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: VerbenaColors.textDark.withValues(alpha: 0.15), width: 1.5),
+      ),
+      child: Row(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: SizedBox(width: 44, height: 44, child: thumbnail),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text('Foto seleccionada', style: VerbenaText.body(size: 13.5, weight: FontWeight.w600)),
+          ),
+        ],
+      ),
     );
   }
 }

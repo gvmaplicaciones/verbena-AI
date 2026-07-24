@@ -1,3 +1,6 @@
+import 'dart:math';
+import 'dart:typed_data';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -17,6 +20,21 @@ const savedAnonRefreshTokenPrefsKey = 'admin_saved_anon_refresh_token';
 /// plantillas desde el móvil sin PC. Usa la misma cuenta de Supabase Auth
 /// (email/contraseña) y las mismas políticas RLS de `admin_users` que ese
 /// panel y que generate-template-asset.
+/// Cómo se construye el prompt final en modo Catálogo (ver runCatalogGeneration
+/// en supabase/functions/_shared/replicate.ts): 'aditiva' no añade sufijo de
+/// formato (el scene_prompt ya preserva la pose/encuadre del usuario),
+/// 'escenaCompleta' añade el sufijo fijo de selfie, 'composicionGrafica' el
+/// sufijo contrario (producción profesional cuidada, no selfie casual).
+enum TemplateType { aditiva, escenaCompleta, composicionGrafica }
+
+extension on TemplateType {
+  String get wireValue => switch (this) {
+        TemplateType.aditiva => 'aditiva',
+        TemplateType.escenaCompleta => 'escena_completa',
+        TemplateType.composicionGrafica => 'composicion_grafica',
+      };
+}
+
 class AdminRepository {
   AdminRepository(this._client);
 
@@ -79,9 +97,15 @@ class AdminRepository {
     await _client.from('templates').update({'is_active': isActive}).eq('id', templateId);
   }
 
+  /// Borra primero la fila y solo si eso funciona el objeto de Storage --
+  /// nunca al revés. Si `generations` sigue referenciando la plantilla, el
+  /// delete falla por foreign key (ver FLUTTER-7 / _delete en
+  /// admin_templates_screen.dart) y con el orden inverso el objeto ya se
+  /// habría borrado, dejando una plantilla activa sin imagen (causó el 404
+  /// "Object not found" de FLUTTER-8 en generate-catalog).
   Future<void> deleteTemplate(String templateId, String imageStoragePath) async {
-    await _client.storage.from('templates').remove([imageStoragePath]);
     await _client.from('templates').delete().eq('id', templateId);
+    await _client.storage.from('templates').remove([imageStoragePath]);
   }
 
   /// A diferencia de fetchCategories() en TemplatesRepository (solo activas,
@@ -118,13 +142,18 @@ class AdminRepository {
     await _client.from('template_categories').delete().eq('id', categoryId);
   }
 
-  /// Misma Edge Function que usa verbena-admin: genera la imagen, la sube y
-  /// crea la fila con is_active=false para revisar antes de publicar (ver
-  /// generate-template-asset/index.ts).
+  /// Misma Edge Function que usa verbena-admin: genera la MINIATURA (solo
+  /// decorativa, grid de Home) a partir de `prompt`, la sube y crea la fila
+  /// con is_active=false para revisar antes de publicar (ver
+  /// generate-template-asset/index.ts). `scenePrompt`/`templateType` son la
+  /// instrucción real de generación en modo Catálogo, no la miniatura.
   Future<GeneratedTemplatePreview> generateTemplate({
     required String categoryId,
     required String name,
     required String prompt,
+    required String scenePrompt,
+    required TemplateType templateType,
+    String? objectReferenceImagePath,
     String replicateModel = 'flux-1.1-pro',
     int sortOrder = 0,
   }) async {
@@ -132,6 +161,9 @@ class AdminRepository {
       'categoryId': categoryId,
       'name': name,
       'prompt': prompt,
+      'scenePrompt': scenePrompt,
+      'templateType': templateType.wireValue,
+      'objectReferenceImagePath': objectReferenceImagePath,
       'replicateModel': replicateModel,
       'sortOrder': sortOrder,
     });
@@ -146,6 +178,91 @@ class AdminRepository {
       imageStoragePath: json['imageStoragePath'] as String,
       previewUrl: json['previewUrl'] as String,
     );
+  }
+
+  /// Alternativa a [generateTemplate]: sube una imagen elegida por el admin
+  /// tal cual, sin pasar por generate-template-asset ni Replicate. Mismo
+  /// resultado (fila is_active=false para revisar antes de publicar) y
+  /// mismo bucket privado 'templates' -- la política RLS "admin manages
+  /// templates storage" permite este insert directo desde el cliente sin
+  /// necesitar una Edge Function. `replicate_model` se marca 'upload' para
+  /// distinguir el origen (ver migración 20260722000000).
+  Future<GeneratedTemplatePreview> uploadTemplateImage({
+    required String categoryId,
+    required String name,
+    required String scenePrompt,
+    required TemplateType templateType,
+    String? objectReferenceImagePath,
+    required Uint8List bytes,
+    required String contentType,
+    int sortOrder = 0,
+  }) async {
+    final imageStoragePath = '$categoryId/${_randomFileToken()}.${_extensionFor(contentType)}';
+    await _client.storage.from('templates').uploadBinary(
+          imageStoragePath,
+          bytes,
+          fileOptions: FileOptions(contentType: contentType),
+        );
+
+    final template = await _client
+        .from('templates')
+        .insert({
+          'category_id': categoryId,
+          'name': name,
+          'image_storage_path': imageStoragePath,
+          'scene_prompt': scenePrompt,
+          'template_type': templateType.wireValue,
+          'object_reference_image': objectReferenceImagePath,
+          'replicate_model': 'upload',
+          'is_active': false,
+          'sort_order': sortOrder,
+        })
+        .select('id')
+        .single();
+
+    final previewUrl = await signedImageUrl(imageStoragePath);
+    return GeneratedTemplatePreview(
+      templateId: template['id'] as String,
+      imageStoragePath: imageStoragePath,
+      previewUrl: previewUrl,
+    );
+  }
+
+  /// Sube la imagen opcional de referencia de objeto (ej. un collar) que se
+  /// incorpora como segunda imagen de referencia junto a la foto del usuario
+  /// en modo Catálogo -- mismo bucket privado 'templates', subcarpeta 'refs'
+  /// para no mezclarla con las miniaturas. El propio scene_prompt de la
+  /// plantilla es quien la referencia en texto, no hay sufijo fijo para esto.
+  Future<String> uploadObjectReferenceImage({
+    required String categoryId,
+    required Uint8List bytes,
+    required String contentType,
+  }) async {
+    final path = '$categoryId/refs/${_randomFileToken()}.${_extensionFor(contentType)}';
+    await _client.storage.from('templates').uploadBinary(
+          path,
+          bytes,
+          fileOptions: FileOptions(contentType: contentType),
+        );
+    return path;
+  }
+
+  String _extensionFor(String contentType) {
+    switch (contentType) {
+      case 'image/png':
+        return 'png';
+      case 'image/webp':
+        return 'webp';
+      default:
+        return 'jpg';
+    }
+  }
+
+  String _randomFileToken() {
+    final rand = Random.secure();
+    final bytes = List.generate(8, (_) => rand.nextInt(256));
+    final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    return '${DateTime.now().millisecondsSinceEpoch}_$hex';
   }
 }
 

@@ -1,0 +1,11 @@
+-- Modo Catálogo pasa de cdingram/face-swap a gpt-image-2 (edición por
+-- instrucciones, ver _shared/replicate.ts) para arreglar plantillas con
+-- varias personas, donde el face-swap no tenía forma de saber a quién
+-- sustituir. target_hint es la parte variable del prompt que escribe el
+-- admin al crear la plantilla (a quién sustituir, ej. "el de la
+-- izquierda") -- el resto del prompt final (preservar pose, ropa, fondo,
+-- iluminación, estilo, peinado y complexión) es fijo y lo añade el código
+-- en generate-catalog, nunca lo escribe el admin a mano cada vez.
+-- Nullable: las 15 plantillas ya existentes no lo tienen, se rellenan a
+-- mano según se detecten fallos o se editen.
+alter table public.templates add column target_hint text;

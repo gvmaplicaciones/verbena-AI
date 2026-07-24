@@ -1,11 +1,14 @@
 // generate-catalog
 //
-// Modo Catálogo: face-swap de la foto verificada del usuario sobre la escena
-// de una plantilla fija. Requiere una photo_session activa (creada por
-// verify-photo) -- nunca confía en un verifiedPhotoId que mande el cliente
-// directamente. Descuenta 1 crédito (gratis -> tier -> extra) SOLO tras
-// confirmar sesión + plantilla válidas, y lo reembolsa si Replicate falla
-// después de haber cobrado.
+// Modo Catálogo: genera sobre la foto verificada del usuario a partir del
+// scene_prompt de una plantilla fija (misma arquitectura que generate-
+// libertad, ver runCatalogGeneration en _shared/replicate.ts) -- ya no hace
+// face-swap sobre la imagen de la plantilla, que se quedó sin calidad
+// suficiente tras varias pruebas. Requiere una photo_session activa (creada
+// por verify-photo) -- nunca confía en un verifiedPhotoId que mande el
+// cliente directamente. Descuenta 1 crédito (gratis -> tier -> extra) SOLO
+// tras confirmar sesión + plantilla válidas, y lo reembolsa si Replicate
+// falla después de haber cobrado.
 //
 // Request:  POST, Authorization: Bearer <supabase JWT>
 //           body JSON = { templateId: string, photoSessionId: string }
@@ -15,7 +18,7 @@
 
 import { corsHeaders } from "../_shared/cors.ts";
 import { getAuthedUser, supabaseAdmin } from "../_shared/supabase.ts";
-import { runFaceSwap } from "../_shared/replicate.ts";
+import { CatalogTemplateType, runCatalogGeneration } from "../_shared/replicate.ts";
 import { downloadAsDataUri, resolveActiveSession, uploadResultImage } from "../_shared/storage.ts";
 import { deductCredit, InsufficientCreditsError, refundCredit } from "../_shared/credits.ts";
 
@@ -56,13 +59,20 @@ Deno.serve(async (req) => {
 
     const { data: template, error: templateErr } = await admin
       .from("templates")
-      .select("id, image_storage_path")
+      .select("id, scene_prompt, template_type, object_reference_image")
       .eq("id", templateId)
       .eq("is_active", true)
       .maybeSingle();
     if (templateErr) throw templateErr;
     if (!template) {
       return json({ error: "template not found" }, 404);
+    }
+    // scene_prompt y template_type son obligatorios para construir el prompt
+    // de gpt-image-2 -- una plantilla activa sin ellos es un error de
+    // configuración del admin, no algo recuperable en runtime.
+    if (!template.scene_prompt || !template.template_type) {
+      console.error(`generate-catalog: template ${template.id} has no scene_prompt/template_type`);
+      return json({ error: "template misconfigured" }, 500);
     }
 
     const { data: generation, error: genErr } = await admin
@@ -92,12 +102,19 @@ Deno.serve(async (req) => {
     await admin.from("generations").update({ status: "generating" }).eq("id", generation.id);
 
     try {
-      const [templateDataUri, photoDataUri] = await Promise.all([
-        downloadAsDataUri(admin, "templates", template.image_storage_path),
+      const [photoDataUri, objectReferenceDataUri] = await Promise.all([
         downloadAsDataUri(admin, "verified-photos", resolvedPhoto.storagePath),
+        template.object_reference_image
+          ? downloadAsDataUri(admin, "templates", template.object_reference_image)
+          : Promise.resolve(null),
       ]);
 
-      const result = await runFaceSwap(templateDataUri, photoDataUri);
+      const result = await runCatalogGeneration(
+        photoDataUri,
+        objectReferenceDataUri,
+        template.scene_prompt,
+        template.template_type as CatalogTemplateType,
+      );
 
       const resultStoragePath = `${user.id}/${generation.id}.jpg`;
       await uploadResultImage(admin, "generation-results", resultStoragePath, result.outputUrl);

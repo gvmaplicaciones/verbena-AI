@@ -41,6 +41,12 @@ class _ResultScreenState extends ConsumerState<ResultScreen> {
     return switch (source) {
       CatalogSource() => source.template.name,
       LibertadSource() => '“${source.prompt}”',
+      // FASE 0: inalcanzable en la práctica (ver GenerationSourceStatus.
+      // isComingSoon), solo para que el switch exhaustivo compile.
+      AddElementSource() => 'Añadir algo',
+      RemoveElementSource() => 'Eliminar algo',
+      ChangeBackgroundSource() => 'Cambiar fondo',
+      TryOnSource() => 'Probar un look',
     };
   }
 

@@ -17,14 +17,11 @@ const CONTENT_FILTER_DEPLOYMENT =
 // en array ni objeto, a diferencia de flux-content-filter.
 const NSFW_MODEL = Deno.env.get("REPLICATE_NSFW_MODEL") ?? "falcons-ai/nsfw_image_detection";
 
-// cdingram/face-swap: modo Catálogo, cara del usuario sobre la escena de la
-// plantilla (confirmado con output real: input_image=plantilla,
-// swap_image=foto del usuario). No es modelo oficial de Replicate, así que
-// conviene fijarlo a un version hash exacto vía REPLICATE_FACE_SWAP_MODEL
-// (formato "cdingram/face-swap:<hash>") para que un cambio futuro del autor
-// no altere el comportamiento sin que lo decidamos nosotros -- pendiente:
-// aún no se ha fijado en este entorno porque no hay forma de confirmar el
-// hash con una predicción real (falta REPLICATE_API_TOKEN de prueba).
+// DEPRECATED: cdingram/face-swap no tenía forma de indicar A QUIÉN sustituir
+// en plantillas con varias personas (siempre cogía la cara más prominente),
+// lo que fallaba en plantillas de grupo. Sustituido por runCatalogFaceSwap
+// (gpt-image-2, ver más abajo) -- se deja sin usar a propósito, no borrar sin
+// decisión explícita, mismo criterio que CONTENT_FILTER_DEPLOYMENT.
 // openai/gpt-image-2: modo Libertad, edición por instrucciones sobre 1-2
 // fotos de referencia del usuario -- modelo oficial de Replicate, no
 // necesita version hash. Sustituye a flux-kontext-pro (confirmado con una
@@ -136,7 +133,7 @@ export async function runGlassesCheck(imageDataUri: string): Promise<boolean> {
   return text.startsWith("yes");
 }
 
-/** Modo Catálogo: coloca la cara de `userPhotoDataUri` sobre la escena de `templateDataUri`. */
+/** DEPRECATED, ver nota junto a FACE_SWAP_MODEL -- sustituida por runCatalogFaceSwap. */
 export async function runFaceSwap(
   templateDataUri: string,
   userPhotoDataUri: string,
@@ -146,6 +143,78 @@ export async function runFaceSwap(
     swap_image: userPhotoDataUri,
   }, 60);
   return toGenerationResult(prediction);
+}
+
+/**
+ * DEPRECATED: ninguna variante de face-swap (cdingram/face-swap, ni este
+ * mismo modo swap de gpt-image-2) dio calidad suficiente tras varias
+ * pruebas reales -- sustituido por runCatalogGeneration, que genera sobre la
+ * foto del usuario a partir de un scene_prompt escrito por el admin en vez
+ * de intercambiar caras sobre la imagen de la plantilla. Se deja sin usar a
+ * propósito, no borrar sin decisión explícita, mismo criterio que
+ * FACE_SWAP_MODEL/CONTENT_FILTER_DEPLOYMENT.
+ */
+export async function runCatalogFaceSwap(
+  templateDataUri: string,
+  userPhotoDataUri: string,
+  targetHint: string,
+): Promise<GenerationResult> {
+  const prompt = `Cambia la cara de la persona ${targetHint} por la cara de la imagen de referencia.`;
+  return runImageEdit([templateDataUri, userPhotoDataUri], prompt);
+}
+
+export type CatalogTemplateType = "aditiva" | "escena_completa" | "composicion_grafica";
+
+// Sufijo de formato específico por tipo de plantilla, añadido siempre por el
+// backend -- el admin nunca lo escribe a mano. Confirmado con pruebas reales
+// que el sufijo de selfie mejora mucho la consistencia frente a describir la
+// escena como "foto de tercero" en escena_completa; composicion_grafica usa
+// el sufijo contrario porque ahí SÍ se busca el acabado de un cartel/portada
+// profesional, no una selfie casual. aditiva no necesita sufijo de formato:
+// el propio scene_prompt ya preserva la pose/encuadre original del usuario.
+const CATALOG_FORMAT_SUFFIX_BY_TYPE: Record<CatalogTemplateType, string> = {
+  aditiva: "",
+  escena_completa:
+    "Selfie tomada por la propia persona, brazo extendido sujetando el móvil, " +
+    "encuadre cercano y casual, no una fotografía profesional de tercero.",
+  composicion_grafica:
+    "Composición fotográfica profesional y estilizada, con iluminación de " +
+    "estudio o de producción cuidada, no una foto casual — el retrato de la " +
+    "persona debe integrarse con la misma calidad de producción, pose y " +
+    "acabado que el resto de la composición.",
+};
+
+// Sufijo fijo de fidelidad facial, igual para los 3 tipos -- validado en
+// pruebas reales frente a versiones sin esta instrucción explícita.
+const CATALOG_FACE_FIDELITY_SUFFIX =
+  "Preserva el parecido e identidad facial exactos de la persona. Conserva " +
+  "su tono de piel y complexión.";
+
+/**
+ * Modo Catálogo (gpt-image-2, misma arquitectura que runImageEdit/modo
+ * Libertad): genera sobre `userPhotoDataUri` (y, si la plantilla la tiene,
+ * `objectReferenceDataUri` como segunda imagen de referencia, ej. una joya a
+ * incorporar) siguiendo `scenePrompt` -- el texto que escribe el admin al
+ * crear la plantilla. El prompt final se construye aquí combinando
+ * scenePrompt con el sufijo de formato según `templateType` y el sufijo fijo
+ * de fidelidad facial -- el admin nunca escribe el prompt completo. La
+ * imagen de la plantilla (image_storage_path) ya NO se usa para generar,
+ * solo como miniatura en el grid de Home.
+ */
+export async function runCatalogGeneration(
+  userPhotoDataUri: string,
+  objectReferenceDataUri: string | null,
+  scenePrompt: string,
+  templateType: CatalogTemplateType,
+): Promise<GenerationResult> {
+  const formatSuffix = CATALOG_FORMAT_SUFFIX_BY_TYPE[templateType];
+  const prompt = [scenePrompt, formatSuffix, CATALOG_FACE_FIDELITY_SUFFIX]
+    .filter((part) => part.length > 0)
+    .join(" ");
+  const referenceImageDataUris = objectReferenceDataUri
+    ? [userPhotoDataUri, objectReferenceDataUri]
+    : [userPhotoDataUri];
+  return runImageEdit(referenceImageDataUris, prompt);
 }
 
 /**

@@ -32,6 +32,16 @@ class GenerationRepository {
           'photoSessionId': photoSessionId,
           if (secondPhotoSessionId != null) 'secondPhotoSessionId': secondPhotoSessionId,
         };
+      // FASE 0 del grid de 4 modos: estos source aún no tienen backend --
+      // ProcessingScreen corta el flujo antes de llegar aquí (ver
+      // GenerationSourceStatus.isComingSoon), así que esta rama es
+      // inalcanzable en la práctica. Solo existe para que el switch
+      // exhaustivo compile.
+      case AddElementSource():
+      case RemoveElementSource():
+      case ChangeBackgroundSource():
+      case TryOnSource():
+        throw UnimplementedError('$source todavía no está conectado a un backend real');
     }
 
     // invoke() lanza FunctionException para cualquier respuesta no-2xx (402

@@ -8,6 +8,7 @@ import 'package:sentry_flutter/sentry_flutter.dart';
 
 import '../../../core/router/app_routes.dart';
 import '../../../core/theme/verbena_theme.dart';
+import '../../../data/models/generation_source.dart';
 import '../../../data/models/processing_args.dart';
 import '../../../data/models/result_args.dart';
 import '../../../data/models/verified_photo.dart';
@@ -48,14 +49,30 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> with Single
   int _progressPct = 0;
   Timer? _progressTimer;
   _ProcessingError? _error;
-  late final AnimationController _pulseController = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 900),
-  )..repeat(reverse: true);
+  late final AnimationController _pulseController;
+  // FASE 0 del grid de 4 modos (Añadir/Eliminar/Fondo/Look): todavía sin
+  // backend real, ver GenerationSourceStatus.isComingSoon. Si es true, se
+  // salta verify-photo y generate por completo -- no tiene sentido gastar
+  // una verificación de foto para un modo que no va a hacer nada con ella.
+  late final bool _comingSoon;
 
   @override
   void initState() {
     super.initState();
+    // Construido aquí (no como inicializador lazy del campo) a propósito:
+    // _pulseController solo se lee en build() cuando `stuck` es true (ver
+    // más abajo), así que si el usuario sale de la pantalla antes de que la
+    // barra se quede parada, dispose() sería el primer acceso al campo -- y
+    // el vsync: this de un `late final` inicializado ahí busca el ancestro
+    // TickerMode sobre un widget ya desactivado, reventando con "Looking up
+    // a deactivated widget's ancestor is unsafe" (visto en Sentry FLUTTER-5).
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    );
+    _comingSoon = widget.args.source.isComingSoon;
+    if (_comingSoon) return;
+    _pulseController.repeat(reverse: true);
     _verifying = widget.args.needsVerification;
     _run();
   }
@@ -244,7 +261,11 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> with Single
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 32),
           child: Center(
-            child: _error != null ? _ErrorState(error: _error!, onRetry: _run) : _buildProgressState(),
+            child: _comingSoon
+                ? const _ComingSoonState()
+                : _error != null
+                ? _ErrorState(error: _error!, onRetry: _run)
+                : _buildProgressState(),
           ),
         ),
       ),
@@ -303,6 +324,36 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen> with Single
                 ),
               ],
             ],
+    );
+  }
+}
+
+/// FASE 0 del grid de 4 modos: se muestra en vez del flujo de verificación/
+/// generación cuando el modo todavía no está conectado a un backend real
+/// (ver GenerationSourceStatus.isComingSoon).
+class _ComingSoonState extends StatelessWidget {
+  const _ComingSoonState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(Icons.auto_awesome_rounded, size: 48, color: VerbenaColors.teal),
+        const SizedBox(height: 22),
+        Text('Próximamente', style: VerbenaText.display(size: 22), textAlign: TextAlign.center),
+        const SizedBox(height: 14),
+        Text(
+          'Este modo todavía no está disponible. Estamos trabajando en ello.',
+          textAlign: TextAlign.center,
+          style: VerbenaText.body(size: 14.5, color: VerbenaColors.textMuted),
+        ),
+        const SizedBox(height: 28),
+        TextButton(
+          onPressed: () => context.go(AppRoutes.home),
+          child: Text('Volver al inicio', style: VerbenaText.body(size: 13.5, color: VerbenaColors.textMuted)),
+        ),
+      ],
     );
   }
 }
