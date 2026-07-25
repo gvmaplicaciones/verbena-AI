@@ -76,7 +76,15 @@ Deno.serve(async (req) => {
     // en Storage. El hash sigue siendo el mismo, así que se actualiza la
     // fila existente en vez de intentar un insert (violaría el unique
     // (user_id, file_hash)).
-    const needsReverify = existing?.status === "approved" && !existing.storage_path;
+    //
+    // rejected -> NO se cachea permanentemente: Rekognition no es 100%
+    // determinista en coincidencias de baja confianza (confirmado con falsos
+    // positivos reales ~77-81% sobre caras sintéticas). Se re-verifica de
+    // cero en cada reintento -- si vuelve a rechazar, sigue rechazado; si
+    // esta vez aprueba, se actualiza la fila (upsertId = existing.id).
+    const needsReverify =
+      (existing?.status === "approved" && !existing.storage_path) ||
+      existing?.status === "rejected";
     if (existing && !needsReverify) {
       return await handleExisting(admin, user.id, existing);
     }
