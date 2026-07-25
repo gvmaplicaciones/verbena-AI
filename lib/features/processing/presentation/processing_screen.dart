@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../../core/router/app_routes.dart';
 import '../../../core/theme/verbena_theme.dart';
@@ -80,6 +81,7 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen>
     );
     _comingSoon = widget.args.source.isComingSoon;
     if (_comingSoon) return;
+    WakelockPlus.enable();
     _pulseController.repeat(reverse: true);
     _verifying = widget.args.needsVerification;
     _run();
@@ -89,6 +91,7 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen>
   void dispose() {
     _progressTimer?.cancel();
     _pulseController.dispose();
+    if (!_comingSoon) WakelockPlus.disable();
     super.dispose();
   }
 
