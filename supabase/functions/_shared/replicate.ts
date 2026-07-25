@@ -277,28 +277,29 @@ export async function runElementRemoval(
   return runImageEdit([photoDataUri], prompt);
 }
 
-// Sufijo fijo del modo "Cambiar fondo" -- siempre en español, nunca se
-// traduce. Sin esto Seedream tiende a pegar a la persona encima del nuevo
-// fondo en vez de recomponer luz/perspectiva de forma coherente, y puede
-// alterar rasgos faciales o pose al recomponer la escena.
-const CHANGE_BACKGROUND_SUFFIX =
-  "La iluminación, temperatura de color y sombras sobre la persona deben " +
-  "coincidir exacta y realistamente con el nuevo entorno — como si la foto " +
-  "se hubiera tomado ahí de verdad. Mantén el mismo ángulo de cámara, " +
-  "encuadre y perspectiva de la foto original, adaptándose de forma natural " +
-  "a la nueva escena, no como si estuviera pegada encima. " +
-  "Es crítico que preserves con máxima fidelidad la identidad facial exacta " +
-  "de la persona, su expresión facial exacta y su postura corporal exacta de " +
-  "la foto original — no cambies rasgos de la cara, no alteres la expresión, " +
-  "no modifiques la pose. Solo el entorno que la rodea debe transformarse.";
+const IDENTITY_PREFIX =
+  "Preserva con máxima fidelidad la identidad facial exacta de la " +
+  "persona, su expresión facial exacta y su postura corporal exacta " +
+  "de la foto original — no cambies rasgos de la cara, no alteres la " +
+  "expresión, no modifiques la pose bajo ningún concepto, incluso si " +
+  "el lugar descrito implica movimiento o acción. Trata a la persona " +
+  "como si se hubiera detenido un instante para hacerse una foto a sí " +
+  "misma en ese lugar, manteniendo exactamente su mismo gesto y " +
+  "postura de la foto original — nunca como si estuviera participando " +
+  "activamente en ninguna acción de la escena.";
 
-function buildChangeBackgroundPrompt(hasBackgroundImage: boolean, placeText: string): string {
-  const trimmed = placeText.trim();
-  const base = hasBackgroundImage
-    ? "Traslada a la persona exactamente al lugar y fondo mostrados en la " +
-      "segunda imagen de referencia." + (trimmed.length > 0 ? ` ${trimmed}.` : "")
-    : `Traslada a la persona a este lugar: ${trimmed}.`;
-  return `${base} ${CHANGE_BACKGROUND_SUFFIX}`;
+const TECHNICAL_SUFFIX =
+  "La iluminación, temperatura de color y sombras sobre la persona " +
+  "deben coincidir exacta y realistamente con el nuevo entorno — como " +
+  "si la foto se hubiera tomado ahí de verdad. Mantén el mismo ángulo " +
+  "de cámara, encuadre y perspectiva de la foto original.";
+
+function buildPrompt(userText: string | null, hasBackgroundImage: boolean): string {
+  const locationPart = hasBackgroundImage
+    ? `Traslada únicamente el entorno que la rodea exactamente al lugar y fondo mostrados en la segunda imagen de referencia.${userText ? ` ${userText}.` : ""}`
+    : `Traslada únicamente el entorno que la rodea a este lugar: ${userText}.`;
+
+  return `${IDENTITY_PREFIX} ${locationPart} ${TECHNICAL_SUFFIX}`;
 }
 
 /**
@@ -312,7 +313,7 @@ export async function runChangeBackground(
   backgroundImageDataUri: string | null,
   placeText: string,
 ): Promise<GenerationResult> {
-  const prompt = buildChangeBackgroundPrompt(backgroundImageDataUri !== null, placeText);
+  const prompt = buildPrompt(placeText.trim() || null, backgroundImageDataUri !== null);
   const imageInput = backgroundImageDataUri
     ? [personImageDataUri, backgroundImageDataUri]
     : [personImageDataUri];
