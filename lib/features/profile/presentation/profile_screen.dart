@@ -9,13 +9,16 @@ import '../../../core/router/app_routes.dart';
 import '../../../core/theme/verbena_icons.dart';
 import '../../../core/theme/verbena_theme.dart';
 import '../../../core/widgets/confetti_background.dart';
+import '../../../data/models/generation_summary.dart';
 import '../../../data/models/user_credits.dart';
 import '../../../data/models/verified_photo_summary.dart';
 import '../../../data/repositories/account_repository.dart';
 import '../../../data/repositories/auth_repository.dart';
 import '../../../data/repositories/credits_repository.dart';
+import '../../../data/repositories/generations_repository.dart';
 import '../../../data/repositories/photo_repository.dart';
 import '../../../data/repositories/purchases_repository.dart';
+import '../../result/presentation/generation_actions.dart';
 
 /// El handoff deja "Cancelar suscripción" como un confirm dialog puramente
 /// en la app (setState local) -- no existe ninguna llamada real que cancele
@@ -143,6 +146,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
   Widget _buildContent(UserCredits credits) {
     final persistedAsync = ref.watch(persistedPhotosProvider);
+    final generationsAsync =
+        credits.isSubscribed ? ref.watch(myGenerationsProvider) : null;
 
     return AbsorbPointer(
       absorbing: _busy,
@@ -284,6 +289,31 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         ],
                       ),
                     ),
+                  if (credits.isSubscribed && generationsAsync != null) ...[
+                    const SizedBox(height: 16),
+                    Text(
+                      'MIS CREACIONES',
+                      style: VerbenaText.body(
+                              size: 12,
+                              weight: FontWeight.w600,
+                              color: VerbenaColors.textMuted)
+                          .copyWith(letterSpacing: 0.4),
+                    ),
+                    const SizedBox(height: 8),
+                    generationsAsync.when(
+                      loading: () => const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 20),
+                        child: Center(child: CircularProgressIndicator()),
+                      ),
+                      error: (err, st) => Text(
+                        'No se pudieron cargar tus creaciones.',
+                        style: VerbenaText.body(
+                            size: 13, color: VerbenaColors.textMuted),
+                      ),
+                      data: (generations) =>
+                          _MyCreationsGrid(generations: generations),
+                    ),
+                  ],
                   const SizedBox(height: 16),
                   Container(
                     decoration: BoxDecoration(
@@ -471,6 +501,147 @@ class _VerifiedPhotosGrid extends ConsumerWidget {
           },
         );
       },
+    );
+  }
+}
+
+class _MyCreationsGrid extends ConsumerWidget {
+  const _MyCreationsGrid({required this.generations});
+
+  final List<GenerationSummary> generations;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (generations.isEmpty) {
+      return Text(
+        'Aún no tienes creaciones. ¡Genera tu primera foto!',
+        style: VerbenaText.body(size: 13, color: VerbenaColors.textMuted),
+      );
+    }
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 4,
+        mainAxisSpacing: 8,
+        crossAxisSpacing: 8,
+        childAspectRatio: 1,
+      ),
+      itemCount: generations.length,
+      itemBuilder: (context, i) {
+        final gen = generations[i];
+        return GestureDetector(
+          onTap: () => _showDetail(context, gen),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: Consumer(
+              builder: (context, ref, _) {
+                final urlAsync =
+                    ref.watch(generationResultUrlProvider(gen.storagePath));
+                return urlAsync.when(
+                  loading: () => Container(color: VerbenaColors.card),
+                  error: (_, __) => Container(color: VerbenaColors.card),
+                  data: (url) =>
+                      CachedNetworkImage(imageUrl: url, fit: BoxFit.cover),
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showDetail(BuildContext context, GenerationSummary gen) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: VerbenaColors.background,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => _CreationDetailSheet(generation: gen),
+    );
+  }
+}
+
+class _CreationDetailSheet extends ConsumerWidget {
+  const _CreationDetailSheet({required this.generation});
+
+  final GenerationSummary generation;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final urlAsync =
+        ref.watch(generationResultUrlProvider(generation.storagePath));
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: VerbenaColors.textDark.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.45,
+                ),
+                child: urlAsync.when(
+                  loading: () => const AspectRatio(
+                    aspectRatio: 1,
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                  error: (_, __) => const AspectRatio(
+                    aspectRatio: 1,
+                    child: SizedBox.shrink(),
+                  ),
+                  data: (url) => CachedNetworkImage(
+                    imageUrl: url,
+                    fit: BoxFit.contain,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  generation.modeLabel,
+                  style: VerbenaText.body(size: 14.5, weight: FontWeight.w700),
+                ),
+                Text(
+                  generation.formattedDate,
+                  style: VerbenaText.body(
+                      size: 13, color: VerbenaColors.textMuted),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            urlAsync.when(
+              loading: () => const SizedBox.shrink(),
+              error: (_, __) => const SizedBox.shrink(),
+              data: (url) => GenerationShareActions(
+                resultUrl: url,
+                generationId: generation.id,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
