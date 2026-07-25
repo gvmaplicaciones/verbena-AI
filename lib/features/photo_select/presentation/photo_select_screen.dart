@@ -33,10 +33,10 @@ const _removeElementPromptSuggestions = [
 ];
 
 const _changeBackgroundPromptSuggestions = [
-  'Playa al atardecer',
-  'Ciudad de noche con rascacielos',
-  'Bosque frondoso',
-  'Estudio de fotografía profesional',
+  'El skyline de Nueva York visto desde un rascacielos',
+  'El Coliseo de Roma visto desde dentro',
+  'Las luces de Tokio vistas desde una azotea',
+  'Una playa tropical al atardecer',
 ];
 
 const _mimeByExtension = {
@@ -514,6 +514,22 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
             ),
           ),
         ),
+        if (widget.source is ChangeBackgroundSource) ...[
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: VerbenaColors.teal.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              '💡 Describe lo que quieres VER, no dónde quieres estar. '
+              'Ej: "El skyline de Nueva York visto desde un rascacielos" '
+              'en vez de "Estoy en el Empire State"',
+              style: VerbenaText.body(size: 12.5, color: VerbenaColors.textMuted),
+            ),
+          ),
+        ],
         const SizedBox(height: 14),
         SizedBox(
           width: double.infinity,

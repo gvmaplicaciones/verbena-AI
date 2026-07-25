@@ -289,10 +289,17 @@ const IDENTITY_PREFIX =
   "activamente en ninguna acción de la escena.";
 
 const TECHNICAL_SUFFIX =
-  "La iluminación, temperatura de color y sombras sobre la persona " +
-  "deben coincidir exacta y realistamente con el nuevo entorno — como " +
-  "si la foto se hubiera tomado ahí de verdad. Mantén el mismo ángulo " +
-  "de cámara, encuadre y perspectiva de la foto original.";
+  "Mantén exactamente el mismo encuadre y recorte que la foto " +
+  "original (mismo plano, mismas partes del cuerpo visibles) — si la " +
+  "foto original es un selfie de torso para arriba, el resultado " +
+  "también debe serlo, sin inventar ni mostrar elementos del cuerpo o " +
+  "el suelo que no estaban en el encuadre original. La iluminación, " +
+  "temperatura de color y sombras sobre la persona deben coincidir " +
+  "exacta y realistamente con el nuevo entorno. Mantén el mismo " +
+  "ángulo de cámara de la foto original. Si se describe un lugar " +
+  "mediante una ubicación en vez de una vista, interpreta que la " +
+  "escena se observa desde ese punto, no que ese lugar aparece como " +
+  "objeto en la imagen.";
 
 function buildPrompt(userText: string | null, hasBackgroundImage: boolean): string {
   const locationPart = hasBackgroundImage
