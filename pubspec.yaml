@@ -57,6 +57,7 @@ dependencies:
   # menú de admin oculto (ver data/repositories/admin_repository.dart), para
   # poder restaurarla aunque la app se cierre a medias.
   shared_preferences: ^2.5.5
+  image: ^4.8.0
 
 dev_dependencies:
   flutter_test:

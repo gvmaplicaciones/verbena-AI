@@ -1,10 +1,12 @@
 import 'dart:typed_data';
 
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 
 import '../../../core/router/app_routes.dart';
@@ -176,9 +178,19 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
       final file =
           await ImagePicker().pickImage(source: imageSource, imageQuality: 90);
       if (file == null || !mounted) return;
-      final bytes = await file.readAsBytes();
+      final contentType = _mimeFromPath(file.path);
+      Uint8List bytes = await file.readAsBytes();
       if (!mounted) return;
-      _onPhotoChosen(bytes: bytes, contentType: _mimeFromPath(file.path));
+      // image_picker_android copia el tag EXIF de orientación sin rotar los
+      // píxeles (confirmado en ImageResizer.java + ExifDataCopier.java).
+      // Replicate ignora el tag y ve los píxeles crudos girados. Decodificar
+      // y re-codificar aquí aplica la rotación a los píxeles y elimina el
+      // tag, dejando el pipeline downstream siempre con imágenes bien orientadas.
+      if (contentType == 'image/jpeg') {
+        bytes = await compute(_normalizeJpegOrientationIsolate, bytes);
+        if (!mounted) return;
+      }
+      _onPhotoChosen(bytes: bytes, contentType: contentType);
     } on PlatformException catch (e) {
       if (mounted) _showPickerError(e);
     } finally {
@@ -931,6 +943,18 @@ class _RecentPhotosSection extends StatelessWidget {
 /// _maxSelectedImages, junto con cámara/galería) con estado visual (borde +
 /// check) en vez de navegar directo -- toca una vez para añadir al
 /// mostrador, toca de nuevo para quitarla.
+// Función top-level (fuera de clase) requerida por compute() para correr en
+// isolate separado. image_picker_android copia el tag EXIF de orientación sin
+// rotar píxeles (ImageResizer.java usa BitmapFactory.decodeFile que ignora
+// EXIF, luego ExifDataCopier.copyExif copia TAG_ORIENTATION al archivo nuevo).
+// decodeJpg aplica la rotación al pixel buffer; encodeJpg graba sin tag de
+// rotación (orientation=1) — Replicate ve píxeles ya bien orientados.
+Uint8List _normalizeJpegOrientationIsolate(Uint8List bytes) {
+  final decoded = img.decodeJpg(bytes);
+  if (decoded == null) return bytes;
+  return img.encodeJpg(decoded, quality: 90);
+}
+
 class _MultiSelectRecentPhotosSection extends StatelessWidget {
   const _MultiSelectRecentPhotosSection({
     required this.photos,
