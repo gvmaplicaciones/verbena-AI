@@ -89,10 +89,12 @@ class PhotoSelectScreen extends ConsumerStatefulWidget {
 }
 
 class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
-  bool get _isPromptSource =>
-      widget.source is AddElementSource ||
-      widget.source is RemoveElementSource ||
-      widget.source is ChangeBackgroundSource;
+  bool get _isPromptSource => switch (widget.source) {
+        AddElementSource() => true,
+        RemoveElementSource(mode: RemoveTargetMode.text) => true,
+        ChangeBackgroundSource() => true,
+        _ => false,
+      };
 
   // gpt-image-2 admite hasta 2 imágenes de referencia en "Añadir algo" (una
   // opcional, para el caso "cambia esto por esto otro") -- no tiene sentido
