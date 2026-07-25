@@ -7,6 +7,7 @@ abstract final class AppRoutes {
   static const home = '/home';
   static const removeElementMode = '/remove-element-mode';
   static const photoSelect = '/photo-select';
+  static const maskPainter = '/mask-painter';
   static const processing = '/processing';
   static const result = '/result';
   static const paywall = '/paywall';

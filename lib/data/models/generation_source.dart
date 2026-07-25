@@ -63,7 +63,7 @@ extension GenerationSourceStatus on GenerationSource {
   bool get isComingSoon => switch (this) {
         CatalogSource() || AddElementSource() => false,
         RemoveElementSource(mode: RemoveTargetMode.text) => false,
-        RemoveElementSource(mode: RemoveTargetMode.mask) => true,
+        RemoveElementSource(mode: RemoveTargetMode.mask) => false,
         ChangeBackgroundSource() => false,
         TryOnSource() => true,
       };

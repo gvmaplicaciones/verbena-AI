@@ -188,6 +188,7 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen>
             source: widget.args.source,
             photoSessionId: photoSessionId,
             secondPhotoSessionId: secondPhotoSessionId,
+            maskBytes: widget.args.maskBytes,
           );
       _progressTimer?.cancel();
       if (!mounted) return;

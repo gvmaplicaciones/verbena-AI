@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -10,14 +13,15 @@ class GenerationRepository {
 
   final SupabaseClient _client;
 
-  /// Llama a generate-catalog/generate-add-element según el origen. El body
-  /// varía: Catálogo manda `templateId`, Añadir algo manda `promptText` (no
-  /// `prompt` -- la Edge Function así lo espera) y, si hay segunda foto de
-  /// referencia, `secondPhotoSessionId` -- Catálogo no admite segunda foto.
+  /// Llama a la Edge Function correspondiente según el origen. El body varía
+  /// por modo: Catálogo manda `templateId`, modos con prompt mandan
+  /// `promptText`, el sub-modo máscara manda `maskBase64` (PNG codificado en
+  /// base64) -- ver cada case para el detalle.
   Future<GenerationOutcome> generate({
     required GenerationSource source,
     required String photoSessionId,
     String? secondPhotoSessionId,
+    Uint8List? maskBytes,
   }) async {
     final String functionName;
     final Map<String, dynamic> body;
@@ -32,11 +36,20 @@ class GenerationRepository {
           'photoSessionId': photoSessionId,
           if (secondPhotoSessionId != null) 'secondPhotoSessionId': secondPhotoSessionId,
         };
-      case RemoveElementSource():
+      case RemoveElementSource(mode: RemoveTargetMode.text):
         // Máximo 1 foto en este modo (ver PhotoSelectScreen._maxSelectedImages),
         // así que no hay secondPhotoSessionId que mandar.
         functionName = 'generate-remove-element';
         body = {'promptText': source.prompt, 'photoSessionId': photoSessionId};
+      case RemoveElementSource(mode: RemoveTargetMode.mask):
+        // La máscara viene de MaskPainterScreen como PNG en bytes --
+        // se manda como base64 sin prefijo data URI; la Edge Function añade
+        // el prefijo antes de llamar a flux-fill-pro.
+        functionName = 'generate-remove-mask';
+        body = {
+          'photoSessionId': photoSessionId,
+          'maskBase64': base64Encode(maskBytes!),
+        };
       case ChangeBackgroundSource():
         // secondPhotoSessionId es la foto de referencia del fondo, opcional
         // -- placeText solo es obligatorio si no hay foto de referencia (ver

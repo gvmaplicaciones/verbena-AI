@@ -12,13 +12,11 @@ class _SubModeInfo {
     required this.title,
     required this.description,
     required this.imagePath,
-    this.comingSoon = false,
   });
 
   final String title;
   final String description;
   final String imagePath;
-  final bool comingSoon;
 }
 
 // Mismo patrón de nombres que assets/modes/ (Fase 0, ver _modes en
@@ -33,35 +31,22 @@ const _subModes = [
     title: 'Selecciona lo que quieres borrar',
     description: 'Marca la zona a eliminar directamente sobre la foto',
     imagePath: 'assets/modes/remove_by_mask.jpeg',
-    comingSoon: true,
   ),
 ];
 
 /// Paso previo del modo "Eliminar algo" (grid de Home): el usuario elige
-/// cómo señala qué quitar de la foto -- por texto (conectado a
-/// generate-remove-element) o marcando la zona a mano (sigue sin
-/// implementar, pendiente del modelo de máscara; ficha visible en estado
-/// "Próximamente"). Mismo patrón visual de fichas grandes que _ModeGrid en
-/// home_screen.dart, con imágenes cuadradas (1:1) en vez de las 190px fijas
-/// de Home.
+/// cómo señala qué quitar de la foto -- por texto (generate-remove-element)
+/// o marcando la zona a mano (generate-remove-mask, flux-fill-pro, FASE 4).
+/// Mismo patrón visual de fichas grandes que _ModeGrid en home_screen.dart,
+/// con imágenes cuadradas (1:1) en vez de las 190px fijas de Home.
 class RemoveModeSelectScreen extends StatelessWidget {
   const RemoveModeSelectScreen({super.key});
 
-  void _showComingSoon(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Próximamente')),
-    );
-  }
-
   void _onTap(BuildContext context, _SubModeInfo mode) {
-    if (mode.comingSoon) {
-      _showComingSoon(context);
-      return;
-    }
-    context.push(
-      AppRoutes.photoSelect,
-      extra: const RemoveElementSource(mode: RemoveTargetMode.text),
-    );
+    final source = mode == _subModes[0]
+        ? const RemoveElementSource(mode: RemoveTargetMode.text)
+        : const RemoveElementSource(mode: RemoveTargetMode.mask);
+    context.push(AppRoutes.photoSelect, extra: source);
   }
 
   @override
@@ -95,8 +80,8 @@ class RemoveModeSelectScreen extends StatelessWidget {
                   padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
                   child: Text(
                     '¿Cómo quieres señalar qué eliminar?',
-                    style:
-                        VerbenaText.body(size: 14, color: VerbenaColors.textMuted),
+                    style: VerbenaText.body(
+                        size: 14, color: VerbenaColors.textMuted),
                   ),
                 ),
                 Expanded(
@@ -123,8 +108,7 @@ class RemoveModeSelectScreen extends StatelessWidget {
 }
 
 /// Misma ficha visual que _ModeCard en home_screen.dart (imagen + título +
-/// descripción), pero con imagen cuadrada (1:1, los assets de este selector
-/// se recortaron así) en vez de los 190px fijos de Home.
+/// descripción), pero con imagen cuadrada (1:1) en vez de los 190px de Home.
 class _SubModeCard extends StatelessWidget {
   const _SubModeCard({required this.mode, required this.onTap});
 
@@ -147,35 +131,9 @@ class _SubModeCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Stack(
-              children: [
-                AspectRatio(
-                  aspectRatio: 1,
-                  child: Image.asset(mode.imagePath, fit: BoxFit.cover),
-                ),
-                if (mode.comingSoon)
-                  Positioned(
-                    top: 12,
-                    right: 12,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: VerbenaColors.background,
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(
-                            color: VerbenaColors.terracotta, width: 1.5),
-                      ),
-                      child: Text(
-                        'PRÓXIMAMENTE',
-                        style: VerbenaText.body(
-                            size: 9.5,
-                            weight: FontWeight.w700,
-                            color: VerbenaColors.terracotta),
-                      ),
-                    ),
-                  ),
-              ],
+            AspectRatio(
+              aspectRatio: 1,
+              child: Image.asset(mode.imagePath, fit: BoxFit.cover),
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
@@ -183,8 +141,7 @@ class _SubModeCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(mode.title,
-                      style:
-                          VerbenaText.body(size: 17, weight: FontWeight.w700)),
+                      style: VerbenaText.body(size: 17, weight: FontWeight.w700)),
                   const SizedBox(height: 4),
                   Text(
                     mode.description,

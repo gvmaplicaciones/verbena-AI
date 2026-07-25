@@ -16,6 +16,8 @@ import '../../features/photo_select/presentation/photo_select_screen.dart';
 import '../../features/processing/presentation/processing_screen.dart';
 import '../../features/profile/presentation/privacy_policy_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
+import '../../data/models/mask_painter_args.dart';
+import '../../features/mask_painter/presentation/mask_painter_screen.dart';
 import '../../features/remove_element/presentation/remove_mode_select_screen.dart';
 import '../../features/result/presentation/result_screen.dart';
 import 'app_routes.dart';
@@ -44,6 +46,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.photoSelect,
         builder: (context, state) => PhotoSelectScreen(source: state.extra! as GenerationSource),
+      ),
+      GoRoute(
+        path: AppRoutes.maskPainter,
+        builder: (context, state) => MaskPainterScreen(args: state.extra! as MaskPainterArgs),
       ),
       GoRoute(
         path: AppRoutes.processing,

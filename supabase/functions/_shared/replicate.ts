@@ -59,6 +59,14 @@ const GLASSES_MODEL =
 const CHANGE_BACKGROUND_MODEL =
   Deno.env.get("REPLICATE_CHANGE_BACKGROUND_MODEL") ?? "bytedance/seedream-4.5";
 
+// Modo "Eliminar algo" sub-modo máscara (FASE 4): inpainting con máscara
+// pintada por el usuario. Confirmado por Gonzalo con una predicción real en
+// el playground de Replicate -- parámetros image/mask como data URI siguen
+// el mismo patrón que el resto de modelos en este archivo, no confirmados
+// aún contra la API (puede que necesite URLs firmadas si data URI da error).
+const FLUX_FILL_PRO_MODEL =
+  Deno.env.get("REPLICATE_FLUX_FILL_PRO_MODEL") ?? "black-forest-labs/flux-fill-pro";
+
 export interface ContentFilterResult {
   passed: boolean;
   raw: unknown;
@@ -333,6 +341,33 @@ export async function runChangeBackground(
     size: "2K",
     max_images: 1,
     sequential_image_generation: "disabled",
+  }, 60);
+  return toGenerationResult(prediction);
+}
+
+// Prompt fijo de inpainting de borrado: el usuario ya expresó su intención
+// pintando la máscara, no necesita escribir texto. Blanco = área a eliminar,
+// negro = área a conservar (convención estándar de flux-fill-pro confirmada
+// por Gonzalo en el playground).
+const MASK_REMOVAL_PROMPT =
+  "elimina el contenido marcado y rellena de forma natural con el fondo " +
+  "circundante, sin dejar rastro ni artefacto";
+
+/**
+ * Modo "Eliminar algo" sub-modo máscara (flux-fill-pro): inpainting guiado
+ * por la máscara que pintó el usuario. Convención de máscara: blanco = zona
+ * a eliminar, negro = zona a conservar.
+ */
+export async function runMaskRemoval(
+  imageDataUri: string,
+  maskDataUri: string,
+): Promise<GenerationResult> {
+  const prediction = await runPrediction(FLUX_FILL_PRO_MODEL, {
+    image: imageDataUri,
+    mask: maskDataUri,
+    prompt: MASK_REMOVAL_PROMPT,
+    output_format: "jpg",
+    output_quality: 90,
   }, 60);
   return toGenerationResult(prediction);
 }

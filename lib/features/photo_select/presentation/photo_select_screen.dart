@@ -12,6 +12,7 @@ import '../../../core/theme/verbena_icons.dart';
 import '../../../core/theme/verbena_theme.dart';
 import '../../../core/widgets/confetti_background.dart';
 import '../../../data/models/generation_source.dart';
+import '../../../data/models/mask_painter_args.dart';
 import '../../../data/models/processing_args.dart';
 import '../../../data/models/verified_photo_summary.dart';
 import '../../../data/repositories/credits_repository.dart';
@@ -142,7 +143,10 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
         CatalogSource(:final template) => 'Vamos a meterte en: ${template.name}',
         AddElementSource() =>
           'Elige hasta 2 fotos y cuéntanos qué quieres añadir',
-        RemoveElementSource() => 'Elige una foto y cuéntanos qué quieres eliminar',
+        RemoveElementSource(mode: RemoveTargetMode.text) =>
+          'Elige una foto y cuéntanos qué quieres eliminar',
+        RemoveElementSource(mode: RemoveTargetMode.mask) =>
+          'Elige la foto en la que quieres borrar algo',
         ChangeBackgroundSource() =>
           'Elige tu foto y describe el lugar, o añade también una foto de referencia',
         TryOnSource() => 'Elige una foto para probarte un look',
@@ -188,12 +192,27 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
         .showSnackBar(SnackBar(content: Text(message)));
   }
 
+  bool get _isMaskSource =>
+      widget.source is RemoveElementSource &&
+      (widget.source as RemoveElementSource).mode == RemoveTargetMode.mask;
+
   void _onPhotoChosen({required Uint8List bytes, required String contentType}) {
     if (_isPromptSource) {
       setState(() {
         _selectedImages
             .add(_SelectedImage.bytes(bytes: bytes, contentType: contentType));
       });
+      return;
+    }
+    if (_isMaskSource) {
+      context.push(
+        AppRoutes.maskPainter,
+        extra: MaskPainterArgs.fromPhoto(
+          source: widget.source,
+          photoBytes: bytes,
+          contentType: contentType,
+        ),
+      );
       return;
     }
     _goToProcessing(bytes: bytes, contentType: contentType);
@@ -221,11 +240,22 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
             .read(photoRepositoryProvider)
             .ensurePhotoSession(photo.id);
         if (!mounted) return;
-        context.push(
-          AppRoutes.processing,
-          extra: ProcessingArgs.fromSession(
-              source: widget.source, photoSessionId: photoSessionId),
-        );
+        if (_isMaskSource) {
+          context.push(
+            AppRoutes.maskPainter,
+            extra: MaskPainterArgs.fromSession(
+              source: widget.source,
+              photoSessionId: photoSessionId,
+              storagePath: photo.storagePath,
+            ),
+          );
+        } else {
+          context.push(
+            AppRoutes.processing,
+            extra: ProcessingArgs.fromSession(
+                source: widget.source, photoSessionId: photoSessionId),
+          );
+        }
       } finally {
         if (mounted) setState(() => _busy = false);
       }
