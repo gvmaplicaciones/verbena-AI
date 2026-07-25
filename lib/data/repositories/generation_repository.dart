@@ -37,12 +37,22 @@ class GenerationRepository {
         // así que no hay secondPhotoSessionId que mandar.
         functionName = 'generate-remove-element';
         body = {'promptText': source.prompt, 'photoSessionId': photoSessionId};
-      // FASE 0 del grid de 4 modos: estos source aún no tienen backend --
+      case ChangeBackgroundSource():
+        // secondPhotoSessionId es la foto de referencia del fondo, opcional
+        // -- placeText solo es obligatorio si no hay foto de referencia (ver
+        // ChangeBackgroundSource, validado ya en PhotoSelectScreen antes de
+        // llegar aquí).
+        functionName = 'generate-change-background';
+        body = {
+          'placeText': source.placeText,
+          'photoSessionId': photoSessionId,
+          if (secondPhotoSessionId != null) 'secondPhotoSessionId': secondPhotoSessionId,
+        };
+      // FASE 0 del grid de 4 modos: este source aún no tiene backend --
       // ProcessingScreen corta el flujo antes de llegar aquí (ver
       // GenerationSourceStatus.isComingSoon), así que esta rama es
       // inalcanzable en la práctica. Solo existe para que el switch
       // exhaustivo compile.
-      case ChangeBackgroundSource():
       case TryOnSource():
         throw UnimplementedError('$source todavía no está conectado a un backend real');
     }

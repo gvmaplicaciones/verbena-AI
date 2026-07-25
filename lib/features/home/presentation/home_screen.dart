@@ -306,10 +306,9 @@ class _ModeCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SizedBox(
-              width: double.infinity,
-              height: 190,
-              child: Image.asset(mode.imagePath, fit: BoxFit.cover),
+            AspectRatio(
+              aspectRatio: 1,
+              child: Image.asset(mode.imagePath, fit: BoxFit.contain),
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),

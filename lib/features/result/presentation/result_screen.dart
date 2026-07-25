@@ -42,9 +42,10 @@ class _ResultScreenState extends ConsumerState<ResultScreen> {
       CatalogSource() => source.template.name,
       AddElementSource() => '“${source.prompt}”',
       RemoveElementSource() => '“${source.prompt}”',
+      ChangeBackgroundSource() =>
+        source.placeText.isEmpty ? 'Cambiar fondo' : '“${source.placeText}”',
       // FASE 0: inalcanzable en la práctica (ver GenerationSourceStatus.
       // isComingSoon), solo para que el switch exhaustivo compile.
-      ChangeBackgroundSource() => 'Cambiar fondo',
       TryOnSource() => 'Probar un look',
     };
   }

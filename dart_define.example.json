@@ -6,5 +6,6 @@
   "POSTHOG_API_KEY": "",
   "POSTHOG_HOST": "",
   "SENTRY_DSN": "",
-  "PRIVACY_POLICY_URL": ""
+  "PRIVACY_POLICY_URL": "",
+  "GOOGLE_WEB_CLIENT_ID": ""
 }

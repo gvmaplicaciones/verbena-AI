@@ -49,6 +49,16 @@ const GLASSES_MODEL =
   Deno.env.get("REPLICATE_GLASSES_MODEL") ??
   "lucataco/moondream2:72ccb656353c348c1385df54b237eeb7bfa874bf11486cf0b9473e691b662d31";
 
+// Modo "Cambiar fondo" (FASE 3): único modo que no usa gpt-image-2 -- Seedream
+// da mejor resultado recomponiendo el entorno completo alrededor de la
+// persona. Confirmado con una predicción real del usuario: image_input es un
+// array de imágenes (acepta data URI, no hace falta URL pública), prompt es
+// un string plano, y aspect_ratio "match_input_image" + height/width 2048 +
+// size "2K" + max_images 1 + sequential_image_generation "disabled" son los
+// parámetros reales de esa llamada -- no asumidos de la documentación.
+const CHANGE_BACKGROUND_MODEL =
+  Deno.env.get("REPLICATE_CHANGE_BACKGROUND_MODEL") ?? "bytedance/seedream-4.5";
+
 export interface ContentFilterResult {
   passed: boolean;
   raw: unknown;
@@ -265,6 +275,58 @@ export async function runElementRemoval(
 ): Promise<GenerationResult> {
   const prompt = `Elimina de la foto: ${promptText}. ${REMOVE_ELEMENT_SUFFIX}`;
   return runImageEdit([photoDataUri], prompt);
+}
+
+// Sufijo fijo del modo "Cambiar fondo" -- siempre en español, nunca se
+// traduce. Sin esto Seedream tiende a pegar a la persona encima del nuevo
+// fondo en vez de recomponer luz/perspectiva de forma coherente, y puede
+// alterar rasgos faciales o pose al recomponer la escena.
+const CHANGE_BACKGROUND_SUFFIX =
+  "La iluminación, temperatura de color y sombras sobre la persona deben " +
+  "coincidir exacta y realistamente con el nuevo entorno — como si la foto " +
+  "se hubiera tomado ahí de verdad. Mantén el mismo ángulo de cámara, " +
+  "encuadre y perspectiva de la foto original, adaptándose de forma natural " +
+  "a la nueva escena, no como si estuviera pegada encima. " +
+  "Es crítico que preserves con máxima fidelidad la identidad facial exacta " +
+  "de la persona, su expresión facial exacta y su postura corporal exacta de " +
+  "la foto original — no cambies rasgos de la cara, no alteres la expresión, " +
+  "no modifiques la pose. Solo el entorno que la rodea debe transformarse.";
+
+function buildChangeBackgroundPrompt(hasBackgroundImage: boolean, placeText: string): string {
+  const trimmed = placeText.trim();
+  const base = hasBackgroundImage
+    ? "Traslada a la persona exactamente al lugar y fondo mostrados en la " +
+      "segunda imagen de referencia." + (trimmed.length > 0 ? ` ${trimmed}.` : "")
+    : `Traslada a la persona a este lugar: ${trimmed}.`;
+  return `${base} ${CHANGE_BACKGROUND_SUFFIX}`;
+}
+
+/**
+ * Modo "Cambiar fondo": traslada a la persona de `personImageDataUri` al
+ * lugar descrito en `placeText` y/o mostrado en `backgroundImageDataUri`
+ * (imagen de referencia opcional -- si está presente, `placeText` es solo un
+ * matiz adicional, no obligatorio). Ver CHANGE_BACKGROUND_MODEL arriba.
+ */
+export async function runChangeBackground(
+  personImageDataUri: string,
+  backgroundImageDataUri: string | null,
+  placeText: string,
+): Promise<GenerationResult> {
+  const prompt = buildChangeBackgroundPrompt(backgroundImageDataUri !== null, placeText);
+  const imageInput = backgroundImageDataUri
+    ? [personImageDataUri, backgroundImageDataUri]
+    : [personImageDataUri];
+  const prediction = await runPrediction(CHANGE_BACKGROUND_MODEL, {
+    image_input: imageInput,
+    prompt,
+    aspect_ratio: "match_input_image",
+    height: 2048,
+    width: 2048,
+    size: "2K",
+    max_images: 1,
+    sequential_image_generation: "disabled",
+  }, 60);
+  return toGenerationResult(prediction);
 }
 
 /**

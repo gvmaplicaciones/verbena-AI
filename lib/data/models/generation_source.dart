@@ -37,9 +37,17 @@ class RemoveElementSource extends GenerationSource {
   final String prompt;
 }
 
-/// Modo "Cambiar fondo" (grid de Home, FASE 0). Sin campos propios todavía.
+/// Modo "Cambiar fondo" (grid de Home). FASE 3: conectado a generación real
+/// (generate-change-background, bytedance/seedream-4.5) -- [placeText]
+/// describe el lugar de destino. La foto de referencia del fondo (opcional)
+/// viaja aparte, como segunda foto (mismo mecanismo que la segunda foto de
+/// AddElementSource, ver ProcessingArgs/PhotoSelectScreen). [placeText] solo
+/// es obligatorio cuando no hay foto de referencia; con foto de referencia
+/// es un matiz opcional.
 class ChangeBackgroundSource extends GenerationSource {
-  const ChangeBackgroundSource();
+  const ChangeBackgroundSource({this.placeText = ''});
+
+  final String placeText;
 }
 
 /// Modo "Probar un look" (grid de Home, FASE 0). Sin campos propios todavía.
@@ -56,6 +64,7 @@ extension GenerationSourceStatus on GenerationSource {
         CatalogSource() || AddElementSource() => false,
         RemoveElementSource(mode: RemoveTargetMode.text) => false,
         RemoveElementSource(mode: RemoveTargetMode.mask) => true,
-        ChangeBackgroundSource() || TryOnSource() => true,
+        ChangeBackgroundSource() => false,
+        TryOnSource() => true,
       };
 }

@@ -32,6 +32,13 @@ const _removeElementPromptSuggestions = [
   'Elimina las marcas de agua',
 ];
 
+const _changeBackgroundPromptSuggestions = [
+  'Playa al atardecer',
+  'Ciudad de noche con rascacielos',
+  'Bosque frondoso',
+  'Estudio de fotografía profesional',
+];
+
 const _mimeByExtension = {
   'jpg': 'image/jpeg',
   'jpeg': 'image/jpeg',
@@ -82,13 +89,32 @@ class PhotoSelectScreen extends ConsumerStatefulWidget {
 
 class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
   bool get _isPromptSource =>
-      widget.source is AddElementSource || widget.source is RemoveElementSource;
+      widget.source is AddElementSource ||
+      widget.source is RemoveElementSource ||
+      widget.source is ChangeBackgroundSource;
 
   // gpt-image-2 admite hasta 2 imágenes de referencia en "Añadir algo" (una
   // opcional, para el caso "cambia esto por esto otro") -- no tiene sentido
   // combinar dos fotos para "eliminar algo de una foto", así que ese modo se
   // limita a 1. Ver runImageEdit en supabase/functions/_shared/replicate.ts.
-  int get _maxSelectedImages => widget.source is AddElementSource ? 2 : 1;
+  // "Cambiar fondo" también admite 2: la foto de la persona (obligatoria) y
+  // una foto de referencia del lugar de destino (opcional, ver
+  // ChangeBackgroundSource y runChangeBackground).
+  int get _maxSelectedImages =>
+      widget.source is AddElementSource || widget.source is ChangeBackgroundSource
+          ? 2
+          : 1;
+
+  // "Cambiar fondo": el texto solo es obligatorio si no hay foto de
+  // referencia del lugar (segunda foto) -- con foto de referencia el texto es
+  // un matiz opcional. El resto de modos con prompt libre siempre lo exigen.
+  bool get _canSubmitPrompt {
+    if (_selectedImages.isEmpty) return false;
+    if (widget.source is ChangeBackgroundSource && _selectedImages.length > 1) {
+      return true;
+    }
+    return _promptController.text.trim().isNotEmpty;
+  }
 
   bool _busy = false;
   final _promptController = TextEditingController();
@@ -108,6 +134,7 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
   String get _title => switch (widget.source) {
         AddElementSource() => 'Añade algo a tu foto',
         RemoveElementSource() => 'Elimina algo de tu foto',
+        ChangeBackgroundSource() => 'Cambia el fondo de tu foto',
         _ => '¿Con qué foto lo hacemos?',
       };
 
@@ -116,7 +143,8 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
         AddElementSource() =>
           'Elige hasta 2 fotos y cuéntanos qué quieres añadir',
         RemoveElementSource() => 'Elige una foto y cuéntanos qué quieres eliminar',
-        ChangeBackgroundSource() => 'Elige una foto para cambiar el fondo',
+        ChangeBackgroundSource() =>
+          'Elige tu foto y describe el lugar, o añade también una foto de referencia',
         TryOnSource() => 'Elige una foto para probarte un look',
       };
 
@@ -235,10 +263,12 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
 
   void _submitPrompt() {
     final prompt = _promptController.text.trim();
-    if (prompt.isEmpty || _selectedImages.isEmpty) return;
-    final GenerationSource source = widget.source is AddElementSource
-        ? AddElementSource(prompt)
-        : RemoveElementSource(mode: RemoveTargetMode.text, prompt: prompt);
+    if (!_canSubmitPrompt) return;
+    final GenerationSource source = switch (widget.source) {
+      AddElementSource() => AddElementSource(prompt),
+      ChangeBackgroundSource() => ChangeBackgroundSource(placeText: prompt),
+      _ => RemoveElementSource(mode: RemoveTargetMode.text, prompt: prompt),
+    };
     final primary = _selectedImages.first;
     final second = _selectedImages.length > 1 ? _selectedImages[1] : null;
 
@@ -363,20 +393,28 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
   }
 
   /// Pantalla única de los modos con prompt libre ("Añadir algo", "Eliminar
-  /// algo" por texto): recientes -> hacer foto -> galería -> prompt, con el
-  /// mostrador de seleccionadas apareciendo en cuanto hay al menos una
-  /// imagen.
+  /// algo" por texto, "Cambiar fondo"): recientes -> hacer foto -> galería ->
+  /// prompt, con el mostrador de seleccionadas apareciendo en cuanto hay al
+  /// menos una imagen.
   Widget _buildPromptBody(List<VerifiedPhotoSummary> recentPhotos) {
     final selectedIds = _selectedImages
         .map((img) => img.recentPhotoId)
         .whereType<String>()
         .toSet();
-    final isAddElement = widget.source is AddElementSource;
-    final suggestions =
-        isAddElement ? _addElementPromptSuggestions : _removeElementPromptSuggestions;
-    final promptHint = isAddElement
-        ? 'Describe qué quieres añadir... ej: ponme un collar de oro'
-        : 'Describe qué quieres eliminar... ej: quita el cartel de la pared';
+    final hasBackgroundReferenceImage =
+        widget.source is ChangeBackgroundSource && _selectedImages.length > 1;
+    final suggestions = switch (widget.source) {
+      AddElementSource() => _addElementPromptSuggestions,
+      ChangeBackgroundSource() => _changeBackgroundPromptSuggestions,
+      _ => _removeElementPromptSuggestions,
+    };
+    final promptHint = switch (widget.source) {
+      AddElementSource() => 'Describe qué quieres añadir... ej: ponme un collar de oro',
+      ChangeBackgroundSource() => hasBackgroundReferenceImage
+          ? 'Añade un matiz si quieres (opcional)... ej: que sea de noche'
+          : 'Describe el lugar... ej: una playa al atardecer',
+      _ => 'Describe qué quieres eliminar... ej: quita el cartel de la pared',
+    };
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 22, 20, 22),
@@ -480,10 +518,7 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
         SizedBox(
           width: double.infinity,
           child: ElevatedButton(
-            onPressed: (_promptController.text.trim().isEmpty ||
-                    _selectedImages.isEmpty)
-                ? null
-                : _submitPrompt,
+            onPressed: _canSubmitPrompt ? _submitPrompt : null,
             style: ElevatedButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 15),
               shape:
