@@ -23,9 +23,8 @@ import '../../../data/repositories/photo_repository.dart';
 const _addElementPromptSuggestions = [
   'Añade una gorra',
   'Ponme un collar de oro',
-  'Añade un reloj de lujo en la muñeca',
-  'Ponme unas gafas de sol',
-  'Añade un ramo de flores en la mano',
+  'Que la camiseta sea roja',
+  'Cambia el color de pelo a rubio',
 ];
 
 const _removeElementPromptSuggestions = [
@@ -92,7 +91,7 @@ class PhotoSelectScreen extends ConsumerStatefulWidget {
 
 class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
   bool get _isPromptSource => switch (widget.source) {
-        AddElementSource() => true,
+        AddElementSource(mode: AddTargetMode.text) => true,
         RemoveElementSource(mode: RemoveTargetMode.text) => true,
         ChangeBackgroundSource() => true,
         _ => false,
@@ -137,22 +136,26 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
   }
 
   String get _title => switch (widget.source) {
-        AddElementSource() => 'Añade algo a tu foto',
+        AddElementSource() => 'Añade o modifica algo en tu foto',
         RemoveElementSource() => 'Elimina algo de tu foto',
         ChangeBackgroundSource() => 'Cambia el fondo de tu foto',
+        ModifyElementSource() => 'Modifica algo de tu foto',
         _ => '¿Con qué foto lo hacemos?',
       };
 
   String get _subtitle => switch (widget.source) {
         CatalogSource(:final template) => 'Vamos a meterte en: ${template.name}',
-        AddElementSource() =>
-          'Elige hasta 2 fotos y cuéntanos qué quieres añadir',
+        AddElementSource(mode: AddTargetMode.text) =>
+          'Elige hasta 2 fotos y cuéntanos qué quieres añadir o cambiar',
+        AddElementSource(mode: AddTargetMode.mask) =>
+          'Elige la foto en la que quieres añadir algo',
         RemoveElementSource(mode: RemoveTargetMode.text) =>
           'Elige una foto y cuéntanos qué quieres eliminar',
         RemoveElementSource(mode: RemoveTargetMode.mask) =>
           'Elige la foto en la que quieres borrar algo',
         ChangeBackgroundSource() =>
           'Elige tu foto y describe el lugar, o añade también una foto de referencia',
+        ModifyElementSource() => 'Elige la foto en la que quieres marcar el cambio',
         TryOnSource() => 'Elige una foto para probarte un look',
       };
 
@@ -206,9 +209,12 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
         .showSnackBar(SnackBar(content: Text(message)));
   }
 
-  bool get _isMaskSource =>
-      widget.source is RemoveElementSource &&
-      (widget.source as RemoveElementSource).mode == RemoveTargetMode.mask;
+  bool get _isMaskSource => switch (widget.source) {
+        RemoveElementSource(mode: RemoveTargetMode.mask) => true,
+        AddElementSource(mode: AddTargetMode.mask) => true,
+        ModifyElementSource() => true,
+        _ => false,
+      };
 
   void _onPhotoChosen({required Uint8List bytes, required String contentType}) {
     if (_isPromptSource) {
@@ -309,7 +315,7 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
     final prompt = _promptController.text.trim();
     if (!_canSubmitPrompt) return;
     final GenerationSource source = switch (widget.source) {
-      AddElementSource() => AddElementSource(prompt),
+      AddElementSource() => AddElementSource(prompt: prompt),
       ChangeBackgroundSource() => ChangeBackgroundSource(placeText: prompt),
       _ => RemoveElementSource(mode: RemoveTargetMode.text, prompt: prompt),
     };
@@ -453,7 +459,8 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
       _ => _removeElementPromptSuggestions,
     };
     final promptHint = switch (widget.source) {
-      AddElementSource() => 'Describe qué quieres añadir... ej: ponme un collar de oro',
+      AddElementSource() =>
+        'Describe qué quieres añadir o cambiar... ej: ponme un collar de oro',
       ChangeBackgroundSource() => hasBackgroundReferenceImage
           ? 'Añade un matiz si quieres (opcional)... ej: que sea de noche'
           : 'Describe el lugar... ej: una playa al atardecer',

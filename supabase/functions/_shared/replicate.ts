@@ -41,14 +41,6 @@ const TEXT_TO_IMAGE_MODELS: Record<string, string> = {
   "flux-1.1-pro": Deno.env.get("REPLICATE_FLUX_PRO_MODEL") ?? "black-forest-labs/flux-1.1-pro",
   "flux-dev": Deno.env.get("REPLICATE_FLUX_DEV_MODEL") ?? "black-forest-labs/flux-dev",
 };
-// VLM ligero para el warning no bloqueante de gafas (el face swap da peor
-// resultado si la foto del usuario lleva gafas y la plantilla no). No es
-// modelo oficial de Replicate -- pinneado por hash confirmado con una
-// predicción real (ver runGlassesCheck), igual que FACE_SWAP_MODEL.
-const GLASSES_MODEL =
-  Deno.env.get("REPLICATE_GLASSES_MODEL") ??
-  "lucataco/moondream2:72ccb656353c348c1385df54b237eeb7bfa874bf11486cf0b9473e691b662d31";
-
 // Modo "Cambiar fondo" (FASE 3): único modo que no usa gpt-image-2 -- Seedream
 // da mejor resultado recomponiendo el entorno completo alrededor de la
 // persona. Confirmado con una predicción real del usuario: image_input es un
@@ -66,6 +58,20 @@ const CHANGE_BACKGROUND_MODEL =
 // aún contra la API (puede que necesite URLs firmadas si data URI da error).
 const FLUX_FILL_PRO_MODEL =
   Deno.env.get("REPLICATE_FLUX_FILL_PRO_MODEL") ?? "black-forest-labs/flux-fill-pro";
+
+// Modo "Añadir algo" sub-modo máscara: cambio de modelo confirmado por
+// Gonzalo tras pruebas manuales en el playground (flux-fill-pro no daba buen
+// resultado para este caso con distintos guidance/prompt_strength). Fuente
+// verificada leyendo el predict.py real del modelo (repo
+// replicate/cog-stable-diffusion-inpainting en GitHub, no documentación de
+// terceros): NO expone width/height como parámetro -- hace
+// image.resize((512,512)) y mask.resize(image.size) fijos, sin conservar
+// aspect ratio (squash). El resultado 512x512 se reescala de vuelta al
+// tamaño exacto de la foto original en generate-add-mask/index.ts (ver
+// _shared/image.ts) para deshacer esa distorsión.
+const SD_INPAINTING_MODEL =
+  Deno.env.get("REPLICATE_SD_INPAINTING_MODEL") ??
+  "stability-ai/stable-diffusion-inpainting:95b7223104132402a9ae91cc677285bc5eb997834bd2349fa486f53910fd68b3";
 
 export interface ContentFilterResult {
   passed: boolean;
@@ -124,32 +130,12 @@ export async function runContentFilter(
 /**
  * NSFW check dedicado (falcons-ai/nsfw_image_detection) -- sustituye la
  * parte nsfw_detected de runContentFilter/flux-content-filter. Se ejecuta en
- * paralelo con runCelebrityCheck (Rekognition) y runGlassesCheck en
- * verify-photo, no de forma secuencial.
+ * paralelo con runCelebrityCheck (Rekognition) en verify-photo, no de forma
+ * secuencial.
  */
 export async function runNsfwCheck(imageDataUri: string): Promise<boolean> {
   const prediction = await runPrediction(NSFW_MODEL, { image: imageDataUri }, 30);
   return prediction.output === "nsfw";
-}
-
-/**
- * Warning no bloqueante: ¿la foto del usuario lleva gafas? Confirmado con
- * una predicción real que moondream2 responde "Yes"/"No" de forma fiable a
- * esta pregunta directa (~0.15-0.5s, coste insignificante frente al face
- * swap). No afecta a `passed` de runContentFilter -- se llama aparte, solo
- * sobre fotos ya aprobadas.
- */
-export async function runGlassesCheck(imageDataUri: string): Promise<boolean> {
-  const prediction = await runPrediction(GLASSES_MODEL, {
-    image: imageDataUri,
-    prompt: "Is this person wearing glasses/eyewear? Answer with just yes or no.",
-  }, 30);
-
-  // El modelo devuelve el texto troceado en tokens (array de strings) en vez
-  // de un string único -- se concatena antes de mirar si empieza por "yes".
-  const output = prediction.output;
-  const text = (Array.isArray(output) ? output.join("") : String(output ?? "")).trim().toLowerCase();
-  return text.startsWith("yes");
 }
 
 /** DEPRECATED, ver nota junto a FACE_SWAP_MODEL -- sustituida por runCatalogFaceSwap. */
@@ -345,27 +331,94 @@ export async function runChangeBackground(
   return toGenerationResult(prediction);
 }
 
-// Prompt fijo de inpainting de borrado: el usuario ya expresó su intención
-// pintando la máscara, no necesita escribir texto. Blanco = área a eliminar,
-// negro = área a conservar (convención estándar de flux-fill-pro confirmada
-// por Gonzalo en el playground).
+// Prompt fijo de inpainting de borrado: refuerza explícitamente que el
+// contenido marcado debe desaparecer como objeto completo (no perpetuarse
+// como patrón/textura/texto residual) y que el relleno es una continuación
+// del fondo circundante, no un objeto nuevo. Blanco = área a eliminar, negro
+// = área a conservar (convención estándar de flux-fill-pro confirmada por
+// Gonzalo en el playground). El texto opcional del usuario (pista sobre qué
+// debería haber en el fondo en su lugar) se concatena al final -- ver
+// runMaskRemoval.
 const MASK_REMOVAL_PROMPT =
-  "elimina el contenido marcado y rellena de forma natural con el fondo " +
-  "circundante, sin dejar rastro ni artefacto";
+  "Elimina por completo el objeto marcado — no lo repitas, no continúes su " +
+  "patrón, textura o cualquier texto que contuviera. Rellena la zona " +
+  "únicamente con una continuación natural y coherente del fondo que la " +
+  "rodea (pared, superficie o entorno circundante), como si ese objeto " +
+  "nunca hubiera estado ahí.";
 
 /**
  * Modo "Eliminar algo" sub-modo máscara (flux-fill-pro): inpainting guiado
  * por la máscara que pintó el usuario. Convención de máscara: blanco = zona
- * a eliminar, negro = zona a conservar.
+ * a eliminar, negro = zona a conservar. [userPrompt] es opcional -- una pista
+ * extra del usuario sobre qué debería haber en el fondo en su lugar,
+ * concatenada al prompt fijo (ver MASK_REMOVAL_PROMPT).
  */
 export async function runMaskRemoval(
   imageDataUri: string,
   maskDataUri: string,
+  userPrompt?: string,
 ): Promise<GenerationResult> {
+  const prompt = userPrompt && userPrompt.length > 0
+    ? `${MASK_REMOVAL_PROMPT} ${userPrompt}`
+    : MASK_REMOVAL_PROMPT;
   const prediction = await runPrediction(FLUX_FILL_PRO_MODEL, {
     image: imageDataUri,
     mask: maskDataUri,
-    prompt: MASK_REMOVAL_PROMPT,
+    prompt,
+    output_format: "jpg",
+    output_quality: 90,
+  }, 60);
+  return toGenerationResult(prediction);
+}
+
+/**
+ * Modo "Añadir algo" sub-modo máscara (stable-diffusion-inpainting): inpainting
+ * guiado por la máscara que pintó el usuario, con el prompt construido
+ * dinámicamente a partir de lo que el usuario describe que quiere añadir.
+ * Misma convención de máscara que runMaskRemoval: blanco = zona marcada,
+ * negro = zona a conservar. Este modelo fuerza 512x512 internamente (ver
+ * SD_INPAINTING_MODEL arriba) -- el caller reescala el resultado de vuelta al
+ * tamaño original.
+ */
+export async function runMaskAddition(
+  imageDataUri: string,
+  maskDataUri: string,
+  userPrompt: string,
+): Promise<GenerationResult> {
+  const prompt =
+    `${userPrompt}, fotografía realista, como una foto de verdad tomada con ` +
+    "cámara, no una ilustración, no un dibujo, no arte vectorial, " +
+    "integrado de forma natural con la iluminación y el estilo del resto " +
+    "de la foto en la zona marcada.";
+  const prediction = await runPrediction(SD_INPAINTING_MODEL, {
+    image: imageDataUri,
+    mask: maskDataUri,
+    prompt,
+  }, 60);
+  return toGenerationResult(prediction);
+}
+
+/**
+ * Modo "Modificar algo" (flux-fill-pro): inpainting guiado por la máscara que
+ * pintó el usuario, con el prompt construido dinámicamente a partir de cómo
+ * describe que quiere que cambie la zona marcada. A diferencia de
+ * runMaskAddition, insiste en que el resto de la imagen quede intacto (aquí
+ * se está modificando algo ya presente, no añadiendo algo nuevo). Misma
+ * convención de máscara: blanco = zona marcada, negro = zona a conservar.
+ */
+export async function runMaskModification(
+  imageDataUri: string,
+  maskDataUri: string,
+  userPrompt: string,
+): Promise<GenerationResult> {
+  const prompt =
+    "Modifica lo siguiente en la zona marcada, integrándolo de forma natural " +
+    "con la iluminación y estilo del resto de la foto: " + userPrompt +
+    ". El resto de la imagen debe permanecer exactamente igual.";
+  const prediction = await runPrediction(FLUX_FILL_PRO_MODEL, {
+    image: imageDataUri,
+    mask: maskDataUri,
+    prompt,
     output_format: "jpg",
     output_quality: 90,
   }, 60);

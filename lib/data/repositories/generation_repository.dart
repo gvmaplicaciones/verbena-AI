@@ -29,12 +29,22 @@ class GenerationRepository {
       case CatalogSource():
         functionName = 'generate-catalog';
         body = {'templateId': source.template.id, 'photoSessionId': photoSessionId};
-      case AddElementSource():
+      case AddElementSource(mode: AddTargetMode.text):
         functionName = 'generate-add-element';
         body = {
           'promptText': source.prompt,
           'photoSessionId': photoSessionId,
           if (secondPhotoSessionId != null) 'secondPhotoSessionId': secondPhotoSessionId,
+        };
+      case AddElementSource(mode: AddTargetMode.mask):
+        // Misma convención que RemoveElementSource(mode: .mask): la máscara
+        // se manda como base64 sin prefijo data URI, la Edge Function añade
+        // el prefijo antes de llamar a flux-fill-pro.
+        functionName = 'generate-add-mask';
+        body = {
+          'photoSessionId': photoSessionId,
+          'maskBase64': base64Encode(maskBytes!),
+          'promptText': source.prompt,
         };
       case RemoveElementSource(mode: RemoveTargetMode.text):
         // Máximo 1 foto en este modo (ver PhotoSelectScreen._maxSelectedImages),
@@ -44,11 +54,23 @@ class GenerationRepository {
       case RemoveElementSource(mode: RemoveTargetMode.mask):
         // La máscara viene de MaskPainterScreen como PNG en bytes --
         // se manda como base64 sin prefijo data URI; la Edge Function añade
-        // el prefijo antes de llamar a flux-fill-pro.
+        // el prefijo antes de llamar a flux-fill-pro. promptText es opcional
+        // aquí (pista extra sobre qué debería haber en el fondo).
         functionName = 'generate-remove-mask';
         body = {
           'photoSessionId': photoSessionId,
           'maskBase64': base64Encode(maskBytes!),
+          if (source.prompt.isNotEmpty) 'promptText': source.prompt,
+        };
+      case ModifyElementSource():
+        // Misma convención que AddElementSource(mode: .mask): la máscara se
+        // manda como base64 sin prefijo data URI, la Edge Function añade el
+        // prefijo antes de llamar a flux-fill-pro.
+        functionName = 'generate-modify-mask';
+        body = {
+          'photoSessionId': photoSessionId,
+          'maskBase64': base64Encode(maskBytes!),
+          'promptText': source.prompt,
         };
       case ChangeBackgroundSource():
         // secondPhotoSessionId es la foto de referencia del fondo, opcional

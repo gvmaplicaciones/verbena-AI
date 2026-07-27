@@ -118,14 +118,16 @@ Deno.serve(async (req) => {
 
       if (isNsfw || celebrityResult.detected) {
         await refundCredit(admin, generation.id);
-        await admin
+        const { error: rejectUpdateErr } = await admin
           .from("generations")
           .update({
             status: "rejected",
-            moderation_result: { nsfw: isNsfw, celebrity: celebrityResult.raw },
             completed_at: new Date().toISOString(),
           })
           .eq("id", generation.id);
+        if (rejectUpdateErr) {
+          console.error("generate-remove-element: failed to persist rejected status", rejectUpdateErr);
+        }
         return json({
           status: "rejected",
           generationId: generation.id,
@@ -146,16 +148,18 @@ Deno.serve(async (req) => {
         .createSignedUrl(resultStoragePath, RESULT_URL_TTL_SECONDS);
       if (signedErr) throw signedErr;
 
-      await admin
+      const { error: completeUpdateErr } = await admin
         .from("generations")
         .update({
           status: "completed",
           replicate_prediction_id: result.predictionId,
           result_storage_path: resultStoragePath,
-          moderation_result: { nsfw: isNsfw, celebrity: celebrityResult.raw },
           completed_at: new Date().toISOString(),
         })
         .eq("id", generation.id);
+      if (completeUpdateErr) {
+        console.error("generate-remove-element: failed to persist completed status", completeUpdateErr);
+      }
 
       return json({ status: "completed", generationId: generation.id, resultUrl: signed.signedUrl });
     } catch (err) {

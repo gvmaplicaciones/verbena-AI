@@ -42,10 +42,10 @@ class ProcessingArgs {
   final String? secondContentType;
   final String? secondPhotoSessionId;
 
-  // Máscara del sub-modo "Selecciona lo que quieres borrar" (FASE 4):
-  // PNG en blanco/negro pintado por el usuario en MaskPainterScreen.
-  // Blanco = zona a eliminar, negro = zona a conservar. Solo presente cuando
-  // source es RemoveElementSource(mode: .mask) -- el resto de modos lo ignoran.
+  // Máscara pintada por el usuario en MaskPainterScreen (PNG en
+  // blanco/negro): blanco = zona marcada, negro = zona a conservar. Presente
+  // cuando source es RemoveElementSource(mode: .mask), AddElementSource(mode:
+  // .mask) o ModifyElementSource -- el resto de modos lo ignoran.
   final Uint8List? maskBytes;
 
   bool get needsVerification => photoSessionId == null;

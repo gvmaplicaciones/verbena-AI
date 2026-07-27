@@ -1,6 +1,6 @@
 // AWS Rekognition RecognizeCelebrities -- sustituye la comprobación de
 // figuras públicas (public_figures) que antes hacía flux-content-filter, en
-// paralelo con runNsfwCheck y runGlassesCheck (ver verify-photo/index.ts).
+// paralelo con runNsfwCheck (ver verify-photo/index.ts).
 //
 // Se firma la petición con aws4fetch (SigV4) en vez del SDK completo de AWS:
 // mucho más ligero para un edge function y evita arrastrar la cantidad de

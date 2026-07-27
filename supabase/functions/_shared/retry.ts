@@ -15,8 +15,8 @@ const RETRY_BASE_DELAY_MS = 1000;
 export const RETRY_BUDGET_MS = 20_000;
 
 // Backoff exponencial (~1s, ~2s, ~4s...) con jitter del 75%-125% para que
-// varias llamadas en curso en paralelo (p.ej. NSFW, Rekognition y glasses
-// check de una misma verify-photo) no reintenten todas en el mismo instante.
+// varias llamadas en curso en paralelo (p.ej. NSFW y Rekognition de una
+// misma verify-photo) no reintenten todas en el mismo instante.
 export function backoffDelayMs(attempt: number): number {
   const base = RETRY_BASE_DELAY_MS * 2 ** attempt;
   return base * (0.75 + Math.random() * 0.5);

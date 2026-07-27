@@ -1,19 +1,18 @@
-// generate-change-background
+// generate-modify-mask
 //
-// Modo "Cambiar fondo" (FASE 3): traslada a la persona de una foto verificada
-// (photoSessionId) al lugar descrito por texto (placeText) y/o mostrado en
-// una segunda foto de referencia opcional (secondPhotoSessionId) --
-// bytedance/seedream-4.5 (ver _shared/replicate.ts), no gpt-image-2 como el
-// resto de modos. Misma verificación (hash, NSFW, Rekognition) para ambas
-// fotos si hay segunda -- ninguna se libra por ser la de referencia. Mismo
-// pipeline que generate-add-element en todo lo demás: 1 crédito
-// (tier/extra/free, cualquier modo puede tirar del gratis), resultado
-// re-comprobado con NSFW + Rekognition antes de mostrarlo, refund si se
-// rechaza o si Replicate falla.
+// Modo "Modificar algo": el usuario pintó sobre la foto la zona que quiere
+// cambiar (blanco = zona marcada, negro = conservar) y describe el cambio con
+// texto libre. El backend descarga la foto verificada de Storage, llama a
+// flux-fill-pro con imagen + máscara + prompt construido dinámicamente a
+// partir del texto del usuario, y re-verifica el resultado (NSFW +
+// Rekognition) igual que el resto de modos con prompt libre. Mismo patrón que
+// generate-add-mask, solo cambia el prompt (insiste en que el resto de la
+// imagen quede intacto, ver runMaskModification).
 //
 // Request:  POST, Authorization: Bearer <supabase JWT>
-//           body JSON = { placeText?: string, photoSessionId: string, secondPhotoSessionId?: string }
-//           placeText es obligatorio solo si NO hay secondPhotoSessionId.
+//           body JSON = { photoSessionId: string, maskBase64: string, promptText: string }
+//           maskBase64: PNG de la máscara sin prefijo data URI, codificado
+//           en base64 estándar. Blanco = zona a modificar, negro = conservar.
 //
 // Response: { status: 'completed', generationId, resultUrl }
 //        o: { status: 'rejected', generationId, reason }
@@ -21,14 +20,14 @@
 
 import { corsHeaders } from "../_shared/cors.ts";
 import { getAuthedUser, supabaseAdmin } from "../_shared/supabase.ts";
-import { runChangeBackground, runNsfwCheck } from "../_shared/replicate.ts";
+import { runMaskModification, runNsfwCheck } from "../_shared/replicate.ts";
 import { runCelebrityCheck } from "../_shared/aws.ts";
 import { encodeBase64 } from "../_shared/bytes.ts";
 import { downloadAsDataUri, resolveActiveSession } from "../_shared/storage.ts";
 import { deductCredit, InsufficientCreditsError, refundCredit } from "../_shared/credits.ts";
 
 const RESULT_URL_TTL_SECONDS = 60 * 60;
-const MAX_PLACE_TEXT_LENGTH = 500;
+const MAX_PROMPT_LENGTH = 500;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -43,35 +42,31 @@ Deno.serve(async (req) => {
     return json({ error: "unauthorized" }, 401);
   }
 
-  let body: { placeText?: unknown; photoSessionId?: unknown; secondPhotoSessionId?: unknown };
+  let body: { photoSessionId?: unknown; maskBase64?: unknown; promptText?: unknown };
   try {
     body = await req.json();
   } catch {
     return json({ error: "invalid JSON body" }, 400);
   }
-  const placeText = body.placeText;
-  const photoSessionId = body.photoSessionId;
-  const secondPhotoSessionId = body.secondPhotoSessionId;
 
-  if (placeText !== undefined && typeof placeText !== "string") {
-    return json({ error: "placeText must be a string" }, 400);
-  }
+  const photoSessionId = body.photoSessionId;
+  const maskBase64 = body.maskBase64;
+  const promptText = body.promptText;
+
   if (typeof photoSessionId !== "string") {
     return json({ error: "photoSessionId is required" }, 400);
   }
-  if (secondPhotoSessionId !== undefined && typeof secondPhotoSessionId !== "string") {
-    return json({ error: "secondPhotoSessionId must be a string" }, 400);
+  if (typeof maskBase64 !== "string" || maskBase64.length === 0) {
+    return json({ error: "maskBase64 is required" }, 400);
+  }
+  if (
+    typeof promptText !== "string" || promptText.trim().length === 0 ||
+    promptText.length > MAX_PROMPT_LENGTH
+  ) {
+    return json({ error: `promptText is required (max ${MAX_PROMPT_LENGTH} chars)` }, 400);
   }
 
-  const hasBackgroundImage = typeof secondPhotoSessionId === "string";
-  const trimmedPlaceText = typeof placeText === "string" ? placeText.trim() : "";
-  if (!hasBackgroundImage && trimmedPlaceText.length === 0) {
-    return json({ error: "placeText is required when there is no background reference image" }, 400);
-  }
-  if (trimmedPlaceText.length > MAX_PLACE_TEXT_LENGTH) {
-    return json({ error: `placeText max ${MAX_PLACE_TEXT_LENGTH} chars` }, 400);
-  }
-
+  const maskDataUri = `data:image/png;base64,${maskBase64}`;
   const admin = supabaseAdmin();
 
   try {
@@ -80,35 +75,22 @@ Deno.serve(async (req) => {
       return json({ error: "invalid or expired photo session, verify the photo again" }, 400);
     }
 
-    let resolvedSecondPhoto: { verifiedPhotoId: string; storagePath: string } | null = null;
-    if (hasBackgroundImage) {
-      resolvedSecondPhoto = await resolveActiveSession(admin, user.id, secondPhotoSessionId as string);
-      if (!resolvedSecondPhoto) {
-        return json({ error: "invalid or expired second photo session, verify the photo again" }, 400);
-      }
-    }
-
     const { data: generation, error: genErr } = await admin
       .from("generations")
       .insert({
         user_id: user.id,
-        mode: "change_background",
-        prompt_text: trimmedPlaceText.length > 0 ? trimmedPlaceText : null,
+        mode: "modify_mask",
+        prompt_text: promptText,
         photo_session_id: photoSessionId,
-        second_photo_session_id: resolvedSecondPhoto ? secondPhotoSessionId : null,
         status: "pending",
       })
       .select("id")
       .single();
     if (genErr) throw genErr;
 
-    const personDataUri = await downloadAsDataUri(admin, "verified-photos", resolvedPhoto.storagePath);
-    const backgroundDataUri = resolvedSecondPhoto
-      ? await downloadAsDataUri(admin, "verified-photos", resolvedSecondPhoto.storagePath)
-      : null;
+    const photoDataUri = await downloadAsDataUri(admin, "verified-photos", resolvedPhoto.storagePath);
 
     try {
-      // Cualquier modo puede tirar del único crédito gratis por usuario.
       await deductCredit(admin, user.id, generation.id, true);
     } catch (err) {
       if (err instanceof InsufficientCreditsError) {
@@ -121,7 +103,7 @@ Deno.serve(async (req) => {
     await admin.from("generations").update({ status: "generating" }).eq("id", generation.id);
 
     try {
-      const result = await runChangeBackground(personDataUri, backgroundDataUri, trimmedPlaceText);
+      const result = await runMaskModification(photoDataUri, maskDataUri, promptText);
 
       const resultRes = await fetch(result.outputUrl);
       if (!resultRes.ok) {
@@ -131,9 +113,9 @@ Deno.serve(async (req) => {
       const resultContentType = resultRes.headers.get("Content-Type") ?? "image/jpeg";
       const resultDataUri = `data:${resultContentType};base64,${encodeBase64(resultBytes)}`;
 
-      // El resultado se recompone desde cero (no es una edición sobre la foto
-      // original) -- se re-comprueba con los mismos modelos que verify-photo
-      // (NSFW + Rekognition), en paralelo, igual que Añadir algo.
+      // El prompt libre puede llevar a flux-fill-pro a generar algo que las
+      // fotos de entrada no tenían -- se re-comprueba el resultado con los
+      // mismos modelos que verify-photo (NSFW + Rekognition), en paralelo.
       const [isNsfw, celebrityResult] = await Promise.all([
         runNsfwCheck(resultDataUri),
         runCelebrityCheck(resultBytes),
@@ -149,7 +131,7 @@ Deno.serve(async (req) => {
           })
           .eq("id", generation.id);
         if (rejectUpdateErr) {
-          console.error("generate-change-background: failed to persist rejected status", rejectUpdateErr);
+          console.error("generate-modify-mask: failed to persist rejected status", rejectUpdateErr);
         }
         return json({
           status: "rejected",
@@ -181,12 +163,12 @@ Deno.serve(async (req) => {
         })
         .eq("id", generation.id);
       if (completeUpdateErr) {
-        console.error("generate-change-background: failed to persist completed status", completeUpdateErr);
+        console.error("generate-modify-mask: failed to persist completed status", completeUpdateErr);
       }
 
       return json({ status: "completed", generationId: generation.id, resultUrl: signed.signedUrl });
     } catch (err) {
-      console.error("generate-change-background generation error", err);
+      console.error("generate-modify-mask generation error", err);
       await refundCredit(admin, generation.id);
       await admin
         .from("generations")
@@ -195,7 +177,7 @@ Deno.serve(async (req) => {
       return json({ error: "internal error generating image" }, 502);
     }
   } catch (err) {
-    console.error("generate-change-background error", err);
+    console.error("generate-modify-mask error", err);
     return json({ error: "internal error" }, 500);
   }
 });

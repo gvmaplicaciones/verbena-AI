@@ -2,8 +2,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../data/models/generation_source.dart';
+import '../../data/models/mask_prompt_args.dart';
 import '../../data/models/processing_args.dart';
 import '../../data/models/result_args.dart';
+import '../../features/add_element/presentation/mask_prompt_screen.dart';
 import '../../features/admin/presentation/admin_categories_screen.dart';
 import '../../features/admin/presentation/admin_login_screen.dart';
 import '../../features/admin/presentation/admin_new_template_screen.dart';
@@ -50,6 +52,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.maskPainter,
         builder: (context, state) => MaskPainterScreen(args: state.extra! as MaskPainterArgs),
+      ),
+      GoRoute(
+        path: AppRoutes.maskPrompt,
+        builder: (context, state) => MaskPromptScreen(args: state.extra! as MaskPromptArgs),
       ),
       GoRoute(
         path: AppRoutes.processing,

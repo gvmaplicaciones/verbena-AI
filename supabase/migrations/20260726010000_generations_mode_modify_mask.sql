@@ -1,0 +1,5 @@
+-- Nueva 5ª ficha "Modificar algo" (grid de Home) ya genera de verdad
+-- (generate-modify-mask, black-forest-labs/flux-fill-pro).
+alter table public.generations drop constraint generations_mode_check;
+alter table public.generations
+  add constraint generations_mode_check check (mode in ('catalog', 'libertad', 'add_element', 'remove_element', 'change_background', 'remove_mask', 'add_mask', 'modify_mask'));

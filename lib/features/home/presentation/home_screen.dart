@@ -227,9 +227,9 @@ class _ModeInfo {
 /// en fases siguientes (ver GenerationSourceStatus.isComingSoon).
 const _modes = [
   _ModeInfo(
-    title: 'Añadir algo',
-    description: 'Pon un objeto, ropa o accesorio en tu foto',
-    source: AddElementSource(''),
+    title: 'Añade o modifica algo',
+    description: 'Añade algo nuevo o cambia lo que ya tienes en tu foto',
+    source: AddElementSource(),
     imagePath: 'assets/modes/add_element.jpeg',
   ),
   _ModeInfo(
@@ -283,6 +283,8 @@ class _ModeCard extends StatelessWidget {
   void _onTap(BuildContext context) {
     // "Eliminar algo" tiene un paso previo de elegir sub-modo (por texto /
     // marcando la zona) -- el resto de modos van directos a PhotoSelect.
+    // "Añade o modifica algo" ya no tiene ese paso: siempre es un flujo
+    // directo de texto (ver AddElementSource, mode por defecto .text).
     if (mode.source is RemoveElementSource) {
       context.push(AppRoutes.removeElementMode);
       return;

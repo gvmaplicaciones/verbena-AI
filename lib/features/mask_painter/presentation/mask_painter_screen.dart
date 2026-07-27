@@ -10,7 +10,9 @@ import '../../../core/router/app_routes.dart';
 import '../../../core/theme/verbena_icons.dart';
 import '../../../core/theme/verbena_theme.dart';
 import '../../../core/widgets/confetti_background.dart';
+import '../../../data/models/generation_source.dart';
 import '../../../data/models/mask_painter_args.dart';
+import '../../../data/models/mask_prompt_args.dart';
 import '../../../data/models/processing_args.dart';
 import '../../../data/repositories/photo_repository.dart';
 
@@ -231,6 +233,33 @@ class _MaskPainterScreenState extends ConsumerState<MaskPainterScreen> {
     final maskBytes = await _exportMask();
     if (!mounted) return;
 
+    // Todos los sub-modos por máscara pasan por un paso de texto antes de
+    // Processing (ver MaskPromptScreen): "Añadir algo"/"Modificar algo" lo
+    // exigen, "Eliminar algo" lo deja opcional (la intención ya está en lo
+    // pintado, pero el usuario puede dar una pista extra sobre qué debería
+    // haber en el fondo en su lugar).
+    if (widget.args.source is AddElementSource ||
+        widget.args.source is ModifyElementSource ||
+        widget.args.source is RemoveElementSource) {
+      final MaskPromptArgs promptArgs;
+      if (widget.args.photoSessionId != null) {
+        promptArgs = MaskPromptArgs.fromSession(
+          source: widget.args.source,
+          photoSessionId: widget.args.photoSessionId!,
+          maskBytes: maskBytes,
+        );
+      } else {
+        promptArgs = MaskPromptArgs.fromPhoto(
+          source: widget.args.source,
+          photoBytes: widget.args.photoBytes!,
+          contentType: widget.args.contentType!,
+          maskBytes: maskBytes,
+        );
+      }
+      context.push(AppRoutes.maskPrompt, extra: promptArgs);
+      return;
+    }
+
     final ProcessingArgs args;
     if (widget.args.photoSessionId != null) {
       args = ProcessingArgs.fromSession(
@@ -271,7 +300,23 @@ class _MaskPainterScreenState extends ConsumerState<MaskPainterScreen> {
     );
   }
 
+  (String, String) get _headerTexts => switch (widget.args.source) {
+        AddElementSource() => (
+            'Marca dónde quieres añadirlo',
+            'Pinta con el dedo la zona donde quieres añadirlo',
+          ),
+        ModifyElementSource() => (
+            'Marca lo que quieres cambiar',
+            'Pinta con el dedo la zona que quieres modificar',
+          ),
+        _ => (
+            'Selecciona lo que quieres borrar',
+            'Pinta con el dedo la zona que quieres eliminar',
+          ),
+      };
+
   Widget _buildHeader() {
+    final (title, subtitle) = _headerTexts;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
       child: Column(
@@ -285,16 +330,13 @@ class _MaskPainterScreenState extends ConsumerState<MaskPainterScreen> {
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: Text(
-                  'Selecciona lo que quieres borrar',
-                  style: VerbenaText.display(size: 18),
-                ),
+                child: Text(title, style: VerbenaText.display(size: 18)),
               ),
             ],
           ),
           const SizedBox(height: 6),
           Text(
-            'Pinta con el dedo la zona que quieres eliminar',
+            subtitle,
             style: VerbenaText.body(size: 13.5, color: VerbenaColors.textMuted),
           ),
           const SizedBox(height: 8),

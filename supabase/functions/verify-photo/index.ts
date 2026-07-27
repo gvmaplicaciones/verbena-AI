@@ -13,13 +13,11 @@
 //           header Content-Type: image/jpeg | image/png | image/webp
 //
 // Response: { status: 'approved' | 'rejected' | 'appealed',
-//             verifiedPhotoId, photoSessionId?, reason?, warning? }
-//           warning: 'glasses_detected' -- no bloquea, la foto queda
-//           aprobada igual; el cliente decide si avisar antes de generar.
+//             verifiedPhotoId, photoSessionId?, reason? }
 
 import { corsHeaders } from "../_shared/cors.ts";
 import { getAuthedUser, supabaseAdmin } from "../_shared/supabase.ts";
-import { runGlassesCheck, runNsfwCheck } from "../_shared/replicate.ts";
+import { runNsfwCheck } from "../_shared/replicate.ts";
 import { runCelebrityCheck } from "../_shared/aws.ts";
 import { encodeBase64 } from "../_shared/bytes.ts";
 import { ensureActiveSession, SESSION_TTL_MS } from "../_shared/storage.ts";
@@ -64,7 +62,7 @@ Deno.serve(async (req) => {
   try {
     const { data: existing, error: existingErr } = await admin
       .from("verified_photos")
-      .select("id, status, storage_path, glasses_detected")
+      .select("id, status, storage_path")
       .eq("user_id", user.id)
       .eq("file_hash", fileHash)
       .maybeSingle();
@@ -99,7 +97,7 @@ Deno.serve(async (req) => {
 async function handleExisting(
   admin: ReturnType<typeof supabaseAdmin>,
   userId: string,
-  existing: { id: string; status: string; glasses_detected: boolean },
+  existing: { id: string; status: string },
 ) {
   if (existing.status === "rejected") {
     return json({
@@ -119,7 +117,6 @@ async function handleExisting(
     status: "approved",
     verifiedPhotoId: existing.id,
     photoSessionId: session.id,
-    warning: existing.glasses_detected ? "glasses_detected" : undefined,
   });
 }
 
@@ -134,17 +131,10 @@ async function verifyNewPhoto(
 ) {
   const dataUri = `data:${contentType};base64,${encodeBase64(bytes)}`;
 
-  // Las tres comprobaciones corren en paralelo, no en secuencia: NSFW y
-  // figuras públicas (Rekognition) bloquean la aprobación, el warning de
-  // gafas no. runGlassesCheck ya trae su propio catch (no debe tumbar la
-  // verificación si falla la predicción).
-  const [isNsfw, celebrityResult, glassesDetected] = await Promise.all([
+  // NSFW y figuras públicas (Rekognition) corren en paralelo, no en secuencia.
+  const [isNsfw, celebrityResult] = await Promise.all([
     runNsfwCheck(dataUri),
     runCelebrityCheck(bytes),
-    runGlassesCheck(dataUri).catch((err) => {
-      console.error("runGlassesCheck error", err);
-      return false;
-    }),
   ]);
 
   if (isNsfw || celebrityResult.detected) {
@@ -196,7 +186,6 @@ async function verifyNewPhoto(
     is_persisted: isSubscribed,
     status: "approved",
     moderation_result: { nsfw: isNsfw, celebrity: celebrityResult.raw },
-    glasses_detected: glassesDetected,
     expires_at: isSubscribed ? null : new Date(Date.now() + SESSION_TTL_MS).toISOString(),
   };
   const { data: verifiedPhoto, error: insertErr } = upsertId
@@ -210,7 +199,6 @@ async function verifyNewPhoto(
     status: "approved",
     verifiedPhotoId: verifiedPhoto.id,
     photoSessionId: session.id,
-    warning: glassesDetected ? "glasses_detected" : undefined,
   });
 }
 

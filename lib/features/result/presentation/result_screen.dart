@@ -39,6 +39,7 @@ class _ResultScreenState extends ConsumerState<ResultScreen> {
       RemoveElementSource() => '"${source.prompt}"',
       ChangeBackgroundSource() =>
         source.placeText.isEmpty ? 'Cambiar fondo' : '"${source.placeText}"',
+      ModifyElementSource() => '"${source.prompt}"',
       // FASE 0: inalcanzable en la práctica (ver GenerationSourceStatus.
       // isComingSoon), solo para que el switch exhaustivo compile.
       TryOnSource() => 'Probar un look',

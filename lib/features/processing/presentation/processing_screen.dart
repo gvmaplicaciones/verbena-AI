@@ -14,7 +14,9 @@ import '../../../data/models/generation_source.dart';
 import '../../../data/models/processing_args.dart';
 import '../../../data/models/result_args.dart';
 import '../../../data/models/verified_photo.dart';
+import '../../../data/repositories/credits_repository.dart';
 import '../../../data/repositories/generation_repository.dart';
+import '../../../data/repositories/generations_repository.dart';
 import '../../../data/repositories/photo_repository.dart';
 
 enum _ErrorKind {
@@ -111,15 +113,6 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen>
             );
         if (result.status == VerifiedPhotoStatus.approved) {
           photoSessionId = result.photoSessionId;
-          if (result.hasGlassesWarning) {
-            if (!mounted) return;
-            final keepGoing = await _confirmGlassesWarning();
-            if (!mounted) return;
-            if (!keepGoing) {
-              context.pop();
-              return;
-            }
-          }
         } else if (result.status == VerifiedPhotoStatus.rejected) {
           _fail(_ProcessingError(_ErrorKind.rejectedPhoto, result.reason));
           return;
@@ -199,6 +192,14 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen>
       }
 
       setState(() => _progressPct = 100);
+
+      // myCreditsProvider y myGenerationsProvider son FutureProvider sin
+      // autoDispose: sin esta invalidación, Home/Perfil siguen sirviendo la
+      // respuesta cacheada de la primera carga (créditos y "Mis creaciones"
+      // desactualizados) hasta que se reinicie el proceso de la app.
+      ref.invalidate(myCreditsProvider);
+      ref.invalidate(myGenerationsProvider);
+
       await Future.delayed(const Duration(milliseconds: 350));
       if (!mounted) return;
 
@@ -235,42 +236,6 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen>
         if (_progressPct < _progressCap) _progressPct += 1;
       });
     });
-  }
-
-  // Warning no bloqueante de verify-photo (glasses_detected) -- la foto ya
-  // está aprobada, esto solo deja elegir antes de gastar el crédito de
-  // generación. true = seguir con esta foto, false = volver a PhotoSelect.
-  Future<bool> _confirmGlassesWarning() async {
-    final keepGoing = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: VerbenaColors.card,
-        title:
-            Text('Hemos detectado gafas', style: VerbenaText.display(size: 17)),
-        content: Text(
-          'El resultado puede no quedar tan bien con gafas puestas. ¿Quieres continuar o cambiar de foto?',
-          style: VerbenaText.body(size: 13.5, color: VerbenaColors.textMuted),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text('Cambiar de foto',
-                style: VerbenaText.body(size: 13.5, weight: FontWeight.w600)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(
-              'Continuar',
-              style: VerbenaText.body(
-                  size: 13.5,
-                  weight: FontWeight.w700,
-                  color: VerbenaColors.teal),
-            ),
-          ),
-        ],
-      ),
-    );
-    return keepGoing ?? false;
   }
 
   void _fail(_ProcessingError error) {

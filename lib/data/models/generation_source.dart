@@ -13,12 +13,21 @@ class CatalogSource extends GenerationSource {
   final Template template;
 }
 
-/// Modo "Añadir algo" (grid de Home). FASE 1: conectado a generación real
-/// (generate-add-element) -- describe qué objeto/prenda/accesorio añadir a
-/// la foto, igual que el prompt libre que tenía el extinto modo Libertad.
-class AddElementSource extends GenerationSource {
-  const AddElementSource(this.prompt);
+/// Cómo señala el usuario dónde añadir algo en la foto: descripción en texto
+/// o marcando la zona a mano sobre la imagen (máscara).
+enum AddTargetMode { text, mask }
 
+/// Modo "Añade o modifica algo" (grid de Home, fusión de los antiguos
+/// "Añadir algo"/"Modificar algo"). Siempre por texto ahora (generate-add-
+/// element) -- el prompt libre del usuario cubre "añadir" y "modificar" por
+/// igual sin distinción de código, sin selector de sub-modo previo.
+/// `mode: .mask` (generate-add-mask, stable-diffusion-inpainting) queda sin
+/// usar en el menú -- deprecated, no borrado, por si se retoma en el futuro
+/// con otro modelo de máscara mejor.
+class AddElementSource extends GenerationSource {
+  const AddElementSource({this.mode = AddTargetMode.text, this.prompt = ''});
+
+  final AddTargetMode mode;
   final String prompt;
 }
 
@@ -55,6 +64,16 @@ class TryOnSource extends GenerationSource {
   const TryOnSource();
 }
 
+/// Antiguo modo "Modificar algo" (5ª ficha de Home) -- fusionado con
+/// "Añadir algo" en AddElementSource (ver arriba). Sin ficha propia en Home
+/// ya, deprecated, no borrado, por si se retoma en el futuro con otro modelo
+/// de máscara mejor (generate-modify-mask, flux-fill-pro).
+class ModifyElementSource extends GenerationSource {
+  const ModifyElementSource({this.prompt = ''});
+
+  final String prompt;
+}
+
 /// Qué modos ya generan de verdad -- centralizado aquí para que
 /// ProcessingScreen (que corta el flujo antes de verify-photo/generate para
 /// los modos "Próximamente") y cualquier otro sitio lean la misma fuente de
@@ -65,6 +84,7 @@ extension GenerationSourceStatus on GenerationSource {
         RemoveElementSource(mode: RemoveTargetMode.text) => false,
         RemoveElementSource(mode: RemoveTargetMode.mask) => false,
         ChangeBackgroundSource() => false,
+        ModifyElementSource() => false,
         TryOnSource() => true,
       };
 }

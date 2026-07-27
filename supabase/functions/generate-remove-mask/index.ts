@@ -3,12 +3,15 @@
 // Modo "Eliminar algo" sub-modo máscara: el usuario pintó sobre la foto las
 // zonas a eliminar (blanco = borrar, negro = conservar) y el cliente manda
 // esa máscara codificada en base64. El backend descarga la foto verificada
-// de Storage, llama a flux-fill-pro con imagen + máscara + prompt fijo, y
-// re-verifica el resultado (NSFW + Rekognition) igual que el resto de modos.
-// No hay prompt del usuario: la intención ya está en la máscara pintada.
+// de Storage, llama a flux-fill-pro con imagen + máscara + prompt fijo
+// (reforzado para que el objeto desaparezca del todo, no se repita como
+// patrón), y re-verifica el resultado (NSFW + Rekognition) igual que el
+// resto de modos. El prompt de texto es opcional: la intención ya está en la
+// máscara pintada, pero el usuario puede dar una pista extra sobre qué
+// debería haber en el fondo en su lugar.
 //
 // Request:  POST, Authorization: Bearer <supabase JWT>
-//           body JSON = { photoSessionId: string, maskBase64: string }
+//           body JSON = { photoSessionId: string, maskBase64: string, promptText?: string }
 //           maskBase64: PNG de la máscara sin prefijo data URI, codificado
 //           en base64 estándar. Blanco = zona a eliminar, negro = conservar.
 //
@@ -25,6 +28,7 @@ import { downloadAsDataUri, resolveActiveSession } from "../_shared/storage.ts";
 import { deductCredit, InsufficientCreditsError, refundCredit } from "../_shared/credits.ts";
 
 const RESULT_URL_TTL_SECONDS = 60 * 60;
+const MAX_PROMPT_LENGTH = 500;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -39,7 +43,7 @@ Deno.serve(async (req) => {
     return json({ error: "unauthorized" }, 401);
   }
 
-  let body: { photoSessionId?: unknown; maskBase64?: unknown };
+  let body: { photoSessionId?: unknown; maskBase64?: unknown; promptText?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -48,6 +52,7 @@ Deno.serve(async (req) => {
 
   const photoSessionId = body.photoSessionId;
   const maskBase64 = body.maskBase64;
+  const promptText = body.promptText;
 
   if (typeof photoSessionId !== "string") {
     return json({ error: "photoSessionId is required" }, 400);
@@ -55,6 +60,13 @@ Deno.serve(async (req) => {
   if (typeof maskBase64 !== "string" || maskBase64.length === 0) {
     return json({ error: "maskBase64 is required" }, 400);
   }
+  if (promptText !== undefined && typeof promptText !== "string") {
+    return json({ error: "promptText must be a string" }, 400);
+  }
+  if (typeof promptText === "string" && promptText.length > MAX_PROMPT_LENGTH) {
+    return json({ error: `promptText max ${MAX_PROMPT_LENGTH} chars` }, 400);
+  }
+  const trimmedPromptText = typeof promptText === "string" ? promptText.trim() : "";
 
   const maskDataUri = `data:image/png;base64,${maskBase64}`;
   const admin = supabaseAdmin();
@@ -70,6 +82,7 @@ Deno.serve(async (req) => {
       .insert({
         user_id: user.id,
         mode: "remove_mask",
+        prompt_text: trimmedPromptText.length > 0 ? trimmedPromptText : null,
         photo_session_id: photoSessionId,
         status: "pending",
       })
@@ -92,7 +105,11 @@ Deno.serve(async (req) => {
     await admin.from("generations").update({ status: "generating" }).eq("id", generation.id);
 
     try {
-      const result = await runMaskRemoval(photoDataUri, maskDataUri);
+      const result = await runMaskRemoval(
+        photoDataUri,
+        maskDataUri,
+        trimmedPromptText.length > 0 ? trimmedPromptText : undefined,
+      );
 
       const resultRes = await fetch(result.outputUrl);
       if (!resultRes.ok) {
@@ -109,14 +126,16 @@ Deno.serve(async (req) => {
 
       if (isNsfw || celebrityResult.detected) {
         await refundCredit(admin, generation.id);
-        await admin
+        const { error: rejectUpdateErr } = await admin
           .from("generations")
           .update({
             status: "rejected",
-            moderation_result: { nsfw: isNsfw, celebrity: celebrityResult.raw },
             completed_at: new Date().toISOString(),
           })
           .eq("id", generation.id);
+        if (rejectUpdateErr) {
+          console.error("generate-remove-mask: failed to persist rejected status", rejectUpdateErr);
+        }
         return json({
           status: "rejected",
           generationId: generation.id,
@@ -137,16 +156,18 @@ Deno.serve(async (req) => {
         .createSignedUrl(resultStoragePath, RESULT_URL_TTL_SECONDS);
       if (signedErr) throw signedErr;
 
-      await admin
+      const { error: completeUpdateErr } = await admin
         .from("generations")
         .update({
           status: "completed",
           replicate_prediction_id: result.predictionId,
           result_storage_path: resultStoragePath,
-          moderation_result: { nsfw: isNsfw, celebrity: celebrityResult.raw },
           completed_at: new Date().toISOString(),
         })
         .eq("id", generation.id);
+      if (completeUpdateErr) {
+        console.error("generate-remove-mask: failed to persist completed status", completeUpdateErr);
+      }
 
       return json({ status: "completed", generationId: generation.id, resultUrl: signed.signedUrl });
     } catch (err) {
