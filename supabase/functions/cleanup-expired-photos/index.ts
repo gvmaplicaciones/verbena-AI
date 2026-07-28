@@ -39,7 +39,8 @@ Deno.serve(async (req) => {
     const purgedPhotos = await purgeExpiredPhotos(admin, nowIso);
     const expiredSessions = await expireStaleSessions(admin, nowIso);
     const deletedGenerations = await cleanupOldGenerations(admin);
-    return json({ purgedPhotos, expiredSessions, deletedGenerations });
+    const reaped = await reaperStuckGenerations(admin, nowIso);
+    return json({ purgedPhotos, expiredSessions, deletedGenerations, reaped });
   } catch (err) {
     console.error("cleanup-expired-photos error", err);
     return json({ error: "internal error" }, 500);
@@ -128,6 +129,52 @@ async function expireStaleSessions(admin: ReturnType<typeof supabaseAdmin>, nowI
     .select("id");
   if (error) throw error;
   return data?.length ?? 0;
+}
+
+/**
+ * Reaper de generaciones atascadas: busca filas con status='generating' de
+ * más de 10 minutos de antigüedad (indica que el worker de Replicate murió
+ * o la Edge Function crasheó antes de actualizar el status), las marca como
+ * 'failed' y reembolsa el crédito via la función SQL refund_credit (que es
+ * idempotente: nullifica credit_source tras reembolsar, así que una segunda
+ * llamada para la misma generación no reembolsa dos veces).
+ */
+async function reaperStuckGenerations(
+  admin: ReturnType<typeof supabaseAdmin>,
+  nowIso: string,
+): Promise<number> {
+  const cutoffMs = new Date(nowIso).getTime() - 10 * 60 * 1000;
+  const cutoff = new Date(cutoffMs).toISOString();
+
+  const { data: stuck, error } = await admin
+    .from("generations")
+    .select("id")
+    .eq("status", "generating")
+    .lt("created_at", cutoff)
+    .limit(BATCH_SIZE);
+  if (error) throw error;
+  if (!stuck || stuck.length === 0) return 0;
+
+  let reaped = 0;
+  for (const gen of stuck as { id: string }[]) {
+    // La condición .eq("status","generating") evita pisar una generación que
+    // el worker terminó justo mientras el cron corría.
+    const { error: failErr } = await admin
+      .from("generations")
+      .update({ status: "failed" })
+      .eq("id", gen.id)
+      .eq("status", "generating");
+    if (failErr) {
+      console.error("reaperStuckGenerations: no se pudo marcar failed", gen.id, failErr);
+      continue;
+    }
+    const { error: refundErr } = await admin.rpc("refund_credit", { p_generation_id: gen.id });
+    if (refundErr) {
+      console.error("reaperStuckGenerations: refund fallido para", gen.id, refundErr);
+    }
+    reaped++;
+  }
+  return reaped;
 }
 
 function json(body: unknown, status = 200) {

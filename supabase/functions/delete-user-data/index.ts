@@ -83,6 +83,23 @@ async function deleteStorageObjects(admin: ReturnType<typeof supabaseAdmin>, use
     const { error } = await admin.storage.from("generation-results").remove(resultPaths);
     if (error) throw error;
   }
+
+  // Armario: bucket exclusivo de socios, debe borrarse para cumplir el derecho
+  // de supresión -- las filas cascadean con el usuario pero los archivos no.
+  const { data: garments, error: garmentsErr } = await admin
+    .from("garments")
+    .select("storage_path")
+    .eq("user_id", userId)
+    .not("storage_path", "is", null);
+  if (garmentsErr) throw garmentsErr;
+
+  const garmentPaths = (garments ?? [])
+    .map((g: { storage_path: string | null }) => g.storage_path)
+    .filter((p: string | null): p is string => !!p);
+  if (garmentPaths.length > 0) {
+    const { error } = await admin.storage.from("garments").remove(garmentPaths);
+    if (error) throw error;
+  }
 }
 
 function json(body: unknown, status = 200) {

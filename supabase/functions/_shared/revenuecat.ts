@@ -231,9 +231,13 @@ export async function grantExtraPack(
     .maybeSingle();
   if (creditsErr) throw creditsErr;
   if (!credits) return;
-  if (credits.subscription_status !== "active") {
-    console.warn(`revenuecat: pack extra comprado por ${userId} sin suscripción activa, se ignora`);
-    return;
+  // 'cancelled' = auto-renovar desactivado pero periodo pagado aún vivo;
+  // el cobro fue real, se concede igual. Para 'expired'/'none' se lanza error
+  // (RevenueCat reintentará) en vez de ignorar silenciosamente un cobro real.
+  if (credits.subscription_status !== "active" && credits.subscription_status !== "cancelled") {
+    throw new Error(
+      `extra_pack_requires_active_subscription: user=${userId} status=${credits.subscription_status}`,
+    );
   }
 
   const newExtra = credits.extra_credits + pack.credits;
@@ -299,8 +303,19 @@ export async function reconcileSubscriberState(
 
   if (active) {
     const planId = resolveInternalProductId(active.product_identifier);
-    if (credits?.subscription_status !== "active" || credits.active_plan_id !== planId) {
+    const isPlanChange = credits?.active_plan_id !== planId;
+    // Solo se llama grantActiveSubscription (que resetea tier_credits) si hay
+    // un cobro nuevo real: status era 'expired'/'none' (sin periodo activo) o
+    // el plan cambió. Si status es 'cancelled' (periodo pagado aún en curso
+    // pero sin auto-renovar) solo se reactiva el status sin tocar créditos.
+    const isNewBillingPeriod =
+      !credits?.subscription_status ||
+      credits.subscription_status === "expired" ||
+      credits.subscription_status === "none";
+    if (isNewBillingPeriod || isPlanChange) {
       await grantActiveSubscription(admin, userId, active.product_identifier);
+    } else if (credits.subscription_status !== "active") {
+      await reactivateSubscription(admin, userId);
     }
     return { subscriptionStatus: "active", activePlanId: planId };
   }
