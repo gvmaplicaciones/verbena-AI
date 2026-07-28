@@ -64,6 +64,11 @@ class AuthRepository {
   Future<AuthResponse> signInExisting({required String email, required String password}) {
     return _client.auth.signInWithPassword(email: email, password: password);
   }
+
+  /// Cierra la sesión actual. Solo disponible para cuentas vinculadas
+  /// (!isAnonymous) -- cerrar sesión en una cuenta anónima destruiría el
+  /// acceso a los datos sin posibilidad de recuperarlos.
+  Future<void> signOut() => _client.auth.signOut();
 }
 
 final authRepositoryProvider = Provider<AuthRepository>((ref) {

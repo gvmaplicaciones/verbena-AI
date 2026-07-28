@@ -81,6 +81,49 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     }
   }
 
+  Future<void> _confirmSignOut() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: VerbenaColors.card,
+        title: Text('Cerrar sesión', style: VerbenaText.display(size: 17)),
+        content: Text(
+          'Se cerrará tu sesión en este dispositivo. Podrás volver a entrar con tu cuenta cuando quieras.',
+          style: VerbenaText.body(size: 13.5, color: VerbenaColors.textMuted),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text('Cancelar',
+                style: VerbenaText.body(size: 13.5, weight: FontWeight.w600)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(
+              'Cerrar sesión',
+              style: VerbenaText.body(
+                  size: 13.5,
+                  weight: FontWeight.w700,
+                  color: VerbenaColors.terracotta),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _busy = true);
+    try {
+      await ref.read(authRepositoryProvider).signOut();
+      if (!mounted) return;
+      context.go(AppRoutes.onboarding);
+    } catch (_) {
+      _showSnack('No hemos podido cerrar la sesión. Inténtalo otra vez.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _confirmDeleteData() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -398,6 +441,24 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                 size: 13.5,
                                 weight: FontWeight.w600,
                                 color: VerbenaColors.teal),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                  if (!ref.watch(authRepositoryProvider).isAnonymous) ...[
+                    const SizedBox(height: 16),
+                    Center(
+                      child: GestureDetector(
+                        onTap: () => _confirmSignOut(),
+                        child: Padding(
+                          padding: const EdgeInsets.all(6),
+                          child: Text(
+                            'Cerrar sesión',
+                            style: VerbenaText.body(
+                                size: 13.5,
+                                weight: FontWeight.w600,
+                                color: VerbenaColors.textMuted),
                           ),
                         ),
                       ),
