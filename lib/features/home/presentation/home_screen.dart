@@ -256,13 +256,13 @@ const _modes = [
     title: 'Eliminar fondo',
     description: 'Quita el fondo de tu foto al instante',
     source: RemoveBackgroundSource(),
-    imagePath: null,
+    imagePath: 'assets/modes/remove_background.jpeg',
   ),
   _ModeInfo(
     title: 'Mejorar calidad',
     description: 'Arregla y mejora la nitidez de tu foto',
     source: EnhanceQualitySource(),
-    imagePath: null,
+    imagePath: 'assets/modes/enhance_quality.jpeg',
   ),
 ];
 
