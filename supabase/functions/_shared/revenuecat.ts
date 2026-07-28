@@ -138,6 +138,40 @@ export async function expireSubscription(
   }
 
   await purgePersistedPhotos(admin, userId);
+  await purgeGarments(admin, userId);
+}
+
+/**
+ * Igual que purgePersistedPhotos pero para el Armario: el bucket 'garments'
+ * es exclusivo de socios (upload-garment lo exige), así que al expirar la
+ * suscripción se borran todos los archivos del usuario. Se conservan las
+ * filas (storage_path a null) por la misma razón que verified_photos -- no
+ * romper el historial de generations que las referencien vía garment_ids.
+ */
+async function purgeGarments(
+  admin: ReturnType<typeof supabaseAdmin>,
+  userId: string,
+): Promise<void> {
+  const { data: garments, error } = await admin
+    .from("garments")
+    .select("id, storage_path")
+    .eq("user_id", userId)
+    .not("storage_path", "is", null);
+  if (error) throw error;
+  if (!garments || garments.length === 0) return;
+
+  const paths = garments.map((g: { storage_path: string | null }) => g.storage_path).filter(
+    (p: string | null): p is string => !!p,
+  );
+  if (paths.length > 0) {
+    const { error: removeErr } = await admin.storage.from("garments").remove(paths);
+    if (removeErr) throw removeErr;
+  }
+
+  await admin
+    .from("garments")
+    .update({ storage_path: null })
+    .in("id", garments.map((g: { id: string }) => g.id));
 }
 
 async function purgePersistedPhotos(

@@ -73,6 +73,33 @@ const SD_INPAINTING_MODEL =
   Deno.env.get("REPLICATE_SD_INPAINTING_MODEL") ??
   "stability-ai/stable-diffusion-inpainting:95b7223104132402a9ae91cc677285bc5eb997834bd2349fa486f53910fd68b3";
 
+// Modo "Probar un look" (FASE 5): virtual try-on dedicado, no gpt-image-2.
+// Schema confirmado leyendo el openapi_schema real embebido en
+// replicate.com/prunaai/p-image-try-on/api/schema (no la documentación
+// pública, que no detalla nombres de campo) -- input requerido:
+// person_image (string, uri) + garment_images (array de string uri, hasta 11
+// soportadas). Salida: un único string (URL), no array. preserve_input_size y
+// turbo confirmados por Gonzalo como los valores a fijar (true / false).
+const TRY_ON_MODEL = Deno.env.get("REPLICATE_TRY_ON_MODEL") ?? "prunaai/p-image-try-on";
+
+// Modo "Eliminar fondo": bria/remove-background. Schema confirmado leyendo el
+// openapi_schema real embebido en replicate.com/bria/remove-background/api/schema
+// -- input.image (string, uri), preserve_alpha (boolean, default true),
+// content_moderation (boolean, default false, nuestra propia verificación en
+// verify-photo ya cubre esto), preserve_partial_alpha (boolean, default true,
+// marcado [DEPRECATED] en el schema -- "No longer used in V2 API, use
+// preserve_alpha instead" -- se manda igualmente porque no hace daño y así
+// queda fijado explícito el valor pedido). Salida: un único string (URL), no
+// array.
+const REMOVE_BACKGROUND_MODEL =
+  Deno.env.get("REPLICATE_REMOVE_BACKGROUND_MODEL") ?? "bria/remove-background";
+
+// Modo "Mejorar calidad": tencentarc/gfpgan, version v1.4. Parámetros fijados
+// por el usuario: version "v1.4", scale 2. Salida: un único string (URL).
+// Resultado JPEG normal (sin canal alfa), a diferencia de bria/remove-background.
+const ENHANCE_QUALITY_MODEL =
+  Deno.env.get("REPLICATE_ENHANCE_QUALITY_MODEL") ?? "tencentarc/gfpgan";
+
 export interface ContentFilterResult {
   passed: boolean;
   raw: unknown;
@@ -421,6 +448,55 @@ export async function runMaskModification(
     prompt,
     output_format: "jpg",
     output_quality: 90,
+  }, 60);
+  return toGenerationResult(prediction);
+}
+
+/**
+ * Modo "Probar un look": viste a la persona de `personImageDataUri` con las
+ * prendas de `garmentImageDataUris` (1-4, validado por el caller antes de
+ * llamar aquí). Ver TRY_ON_MODEL arriba para la fuente del schema.
+ */
+export async function runTryOn(
+  personImageDataUri: string,
+  garmentImageDataUris: string[],
+): Promise<GenerationResult> {
+  const prediction = await runPrediction(TRY_ON_MODEL, {
+    person_image: personImageDataUri,
+    garment_images: garmentImageDataUris,
+    preserve_input_size: true,
+    turbo: false,
+  }, 60);
+  return toGenerationResult(prediction);
+}
+
+/**
+ * Modo "Mejorar calidad": restaura y mejora la nitidez de la imagen (y en
+ * especial de la cara) con GFPGAN v1.4. Salida JPEG normal sin canal alfa,
+ * se guarda igual que el resto de modos (no requiere tratamiento especial
+ * de formato). scale=2 dobla la resolución de salida.
+ */
+export async function runEnhanceQuality(imageDataUri: string): Promise<GenerationResult> {
+  const prediction = await runPrediction(ENHANCE_QUALITY_MODEL, {
+    img: imageDataUri,
+    version: "v1.4",
+    scale: 2,
+  }, 60);
+  return toGenerationResult(prediction);
+}
+
+/**
+ * Modo "Eliminar fondo": quita el fondo de `imageDataUri` preservando el
+ * canal alfa (ver REMOVE_BACKGROUND_MODEL arriba). El caller es responsable
+ * de guardar/servir el resultado como PNG -- este modelo no aplana la
+ * transparencia como el resto de modos que devuelven JPEG.
+ */
+export async function runRemoveBackground(imageDataUri: string): Promise<GenerationResult> {
+  const prediction = await runPrediction(REMOVE_BACKGROUND_MODEL, {
+    image: imageDataUri,
+    preserve_alpha: true,
+    content_moderation: false,
+    preserve_partial_alpha: true,
   }, 60);
   return toGenerationResult(prediction);
 }

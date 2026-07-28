@@ -7,6 +7,7 @@ class GenerationSummary {
     this.promptText,
     required this.storagePath,
     required this.createdAt,
+    required this.isFavorite,
   });
 
   final String id;
@@ -14,6 +15,7 @@ class GenerationSummary {
   final String? promptText;
   final String storagePath;
   final DateTime createdAt;
+  final bool isFavorite;
 
   factory GenerationSummary.fromJson(Map<String, dynamic> json) =>
       GenerationSummary(
@@ -22,6 +24,7 @@ class GenerationSummary {
         promptText: json['prompt_text'] as String?,
         storagePath: json['result_storage_path'] as String,
         createdAt: DateTime.parse(json['created_at'] as String),
+        isFavorite: json['is_favorite'] as bool? ?? false,
       );
 
   String get modeLabel => switch (mode) {
@@ -29,6 +32,9 @@ class GenerationSummary {
         'add_element' => 'Añadir algo',
         'remove_element' => 'Eliminar algo',
         'change_background' => 'Cambiar fondo',
+        'try_on' => 'Probar un look',
+        'remove_background' => 'Eliminar fondo',
+        'enhance_quality' => 'Mejorar calidad',
         _ => 'Generación',
       };
 

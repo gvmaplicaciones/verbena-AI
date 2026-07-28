@@ -9,13 +9,15 @@ class ResultArgs {
     required this.source,
     required this.resultUrl,
     required this.generationId,
-    required this.photoSessionId,
+    this.photoSessionId,
     this.creditSource,
   });
 
   final GenerationSource source;
   final String resultUrl;
   final String generationId;
-  final String photoSessionId;
+  // Null para modos que omiten verify-photo (RemoveBackground, EnhanceQuality
+  // con foto nueva) -- en ese caso "Otra vez" vuelve a selección de foto.
+  final String? photoSessionId;
   final GenerationCreditSource? creditSource;
 }

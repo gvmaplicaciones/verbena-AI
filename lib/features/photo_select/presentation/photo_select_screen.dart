@@ -6,13 +6,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 
 import '../../../core/router/app_routes.dart';
 import '../../../core/theme/verbena_icons.dart';
 import '../../../core/theme/verbena_theme.dart';
+import '../../../core/utils/image_orientation.dart';
 import '../../../core/widgets/confetti_background.dart';
+import '../../../data/models/garment_select_args.dart';
 import '../../../data/models/generation_source.dart';
 import '../../../data/models/mask_painter_args.dart';
 import '../../../data/models/processing_args.dart';
@@ -140,6 +141,7 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
         RemoveElementSource() => 'Elimina algo de tu foto',
         ChangeBackgroundSource() => 'Cambia el fondo de tu foto',
         ModifyElementSource() => 'Modifica algo de tu foto',
+        RemoveBackgroundSource() => 'Elimina el fondo de tu foto',
         _ => '¿Con qué foto lo hacemos?',
       };
 
@@ -157,6 +159,8 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
           'Elige tu foto y describe el lugar, o añade también una foto de referencia',
         ModifyElementSource() => 'Elige la foto en la que quieres marcar el cambio',
         TryOnSource() => 'Elige una foto para probarte un look',
+        RemoveBackgroundSource() => 'Elige la foto a la que quitamos el fondo',
+        EnhanceQualitySource() => 'Elige la foto que quieres mejorar',
       };
 
   void _showMaxImagesSnackbar() {
@@ -190,7 +194,7 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
       // y re-codificar aquí aplica la rotación a los píxeles y elimina el
       // tag, dejando el pipeline downstream siempre con imágenes bien orientadas.
       if (contentType == 'image/jpeg') {
-        bytes = await compute(_normalizeJpegOrientationIsolate, bytes);
+        bytes = await compute(normalizeJpegOrientation, bytes);
         if (!mounted) return;
       }
       _onPhotoChosen(bytes: bytes, contentType: contentType);
@@ -235,6 +239,17 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
       );
       return;
     }
+    if (widget.source is TryOnSource) {
+      context.push(
+        AppRoutes.garmentSelect,
+        extra: GarmentSelectArgs.fromPhoto(
+          source: widget.source,
+          photoBytes: bytes,
+          contentType: contentType,
+        ),
+      );
+      return;
+    }
     _goToProcessing(bytes: bytes, contentType: contentType);
   }
 
@@ -267,6 +282,14 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
               source: widget.source,
               photoSessionId: photoSessionId,
               storagePath: photo.storagePath,
+            ),
+          );
+        } else if (widget.source is TryOnSource) {
+          context.push(
+            AppRoutes.garmentSelect,
+            extra: GarmentSelectArgs.fromSession(
+              source: widget.source,
+              photoSessionId: photoSessionId,
             ),
           );
         } else {
@@ -950,18 +973,6 @@ class _RecentPhotosSection extends StatelessWidget {
 /// _maxSelectedImages, junto con cámara/galería) con estado visual (borde +
 /// check) en vez de navegar directo -- toca una vez para añadir al
 /// mostrador, toca de nuevo para quitarla.
-// Función top-level (fuera de clase) requerida por compute() para correr en
-// isolate separado. image_picker_android copia el tag EXIF de orientación sin
-// rotar píxeles (ImageResizer.java usa BitmapFactory.decodeFile que ignora
-// EXIF, luego ExifDataCopier.copyExif copia TAG_ORIENTATION al archivo nuevo).
-// decodeJpg aplica la rotación al pixel buffer; encodeJpg graba sin tag de
-// rotación (orientation=1) — Replicate ve píxeles ya bien orientados.
-Uint8List _normalizeJpegOrientationIsolate(Uint8List bytes) {
-  final decoded = img.decodeJpg(bytes);
-  if (decoded == null) return bytes;
-  return img.encodeJpg(decoded, quality: 90);
-}
-
 class _MultiSelectRecentPhotosSection extends StatelessWidget {
   const _MultiSelectRecentPhotosSection({
     required this.photos,

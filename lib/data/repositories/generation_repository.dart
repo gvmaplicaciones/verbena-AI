@@ -8,6 +8,11 @@ import '../models/generation_outcome.dart';
 import '../models/generation_source.dart';
 import '../providers/supabase_provider.dart';
 
+// Necesario para que Replicate acepte la imagen directamente sin pasar por
+// verify-photo (modos RemoveBackground y EnhanceQuality).
+String _toDataUri(Uint8List bytes, String contentType) =>
+    'data:$contentType;base64,${base64Encode(bytes)}';
+
 class GenerationRepository {
   GenerationRepository(this._client);
 
@@ -19,9 +24,15 @@ class GenerationRepository {
   /// base64) -- ver cada case para el detalle.
   Future<GenerationOutcome> generate({
     required GenerationSource source,
-    required String photoSessionId,
+    // photoSessionId es null para los modos que omiten verify-photo
+    // (RemoveBackgroundSource, EnhanceQualitySource con foto nueva).
+    String? photoSessionId,
+    Uint8List? directPhotoBytes,
+    String? directContentType,
     String? secondPhotoSessionId,
     Uint8List? maskBytes,
+    List<String>? garmentPhotoSessionIds,
+    List<String>? garmentIds,
   }) async {
     final String functionName;
     final Map<String, dynamic> body;
@@ -83,13 +94,24 @@ class GenerationRepository {
           'photoSessionId': photoSessionId,
           if (secondPhotoSessionId != null) 'secondPhotoSessionId': secondPhotoSessionId,
         };
-      // FASE 0 del grid de 4 modos: este source aún no tiene backend --
-      // ProcessingScreen corta el flujo antes de llegar aquí (ver
-      // GenerationSourceStatus.isComingSoon), así que esta rama es
-      // inalcanzable en la práctica. Solo existe para que el switch
-      // exhaustivo compile.
       case TryOnSource():
-        throw UnimplementedError('$source todavía no está conectado a un backend real');
+        functionName = 'generate-try-on';
+        body = {
+          'photoSessionId': photoSessionId,
+          if (garmentPhotoSessionIds != null && garmentPhotoSessionIds.isNotEmpty)
+            'garmentPhotoSessionIds': garmentPhotoSessionIds,
+          if (garmentIds != null && garmentIds.isNotEmpty) 'garmentIds': garmentIds,
+        };
+      case RemoveBackgroundSource():
+        functionName = 'generate-remove-background';
+        body = directPhotoBytes != null
+            ? {'photoBase64': _toDataUri(directPhotoBytes, directContentType!)}
+            : {'photoSessionId': photoSessionId};
+      case EnhanceQualitySource():
+        functionName = 'generate-enhance-quality';
+        body = directPhotoBytes != null
+            ? {'photoBase64': _toDataUri(directPhotoBytes, directContentType!)}
+            : {'photoSessionId': photoSessionId};
     }
 
     // invoke() lanza FunctionException para cualquier respuesta no-2xx (402

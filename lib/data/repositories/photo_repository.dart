@@ -82,6 +82,22 @@ class PhotoRepository {
   Future<String> signedUrl(String storagePath) {
     return _client.storage.from('verified-photos').createSignedUrl(storagePath, 3600);
   }
+
+  /// URL firmada de la foto "antes" (original) de una generación, resuelta
+  /// desde el mismo photoSessionId que ya viaja en ResultArgs -- alimenta el
+  /// slider antes/después de ResultScreen sin plumbing nuevo. photo_sessions
+  /// y verified_photos tienen RLS de solo lectura del propio usuario, así que
+  /// el embed anidado de PostgREST basta sin pasar por una Edge Function.
+  Future<String> originalPhotoUrlForSession(String photoSessionId) async {
+    final row = await _client
+        .from('photo_sessions')
+        .select('verified_photos(storage_path)')
+        .eq('id', photoSessionId)
+        .single();
+    final storagePath =
+        (row['verified_photos'] as Map<String, dynamic>)['storage_path'] as String;
+    return signedUrl(storagePath);
+  }
 }
 
 class PhotoVerificationException implements Exception {
@@ -102,4 +118,8 @@ final persistedPhotosProvider = FutureProvider<List<VerifiedPhotoSummary>>((ref)
 
 final verifiedPhotoUrlProvider = FutureProvider.family<String, String>((ref, storagePath) {
   return ref.watch(photoRepositoryProvider).signedUrl(storagePath);
+});
+
+final originalPhotoUrlProvider = FutureProvider.family<String, String>((ref, photoSessionId) {
+  return ref.watch(photoRepositoryProvider).originalPhotoUrlForSession(photoSessionId);
 });

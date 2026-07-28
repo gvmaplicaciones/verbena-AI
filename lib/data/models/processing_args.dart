@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'garment.dart';
 import 'generation_source.dart';
 
 /// Payload que PhotoSelect pasa a Processing (`extra` de go_router): de dónde
@@ -16,6 +17,7 @@ class ProcessingArgs {
     this.secondContentType,
     this.secondPhotoSessionId,
     this.maskBytes,
+    this.garmentPicks,
   }) : photoSessionId = null;
 
   const ProcessingArgs.fromSession({
@@ -25,6 +27,7 @@ class ProcessingArgs {
     this.secondContentType,
     this.secondPhotoSessionId,
     this.maskBytes,
+    this.garmentPicks,
   })  : photoBytes = null,
         contentType = null;
 
@@ -47,6 +50,12 @@ class ProcessingArgs {
   // cuando source es RemoveElementSource(mode: .mask), AddElementSource(mode:
   // .mask) o ModifyElementSource -- el resto de modos lo ignoran.
   final Uint8List? maskBytes;
+
+  // Prendas del modo "Probar un look" (TryOnSource), 1-4 -- cada una es o
+  // bien bytes recién elegidos (hace falta verify-photo en ProcessingScreen)
+  // o bien una prenda ya guardada en el Armario (ya verificada, se manda
+  // directa como garmentId). El resto de modos lo ignoran.
+  final List<GarmentPick>? garmentPicks;
 
   bool get needsVerification => photoSessionId == null;
   bool get hasSecondPhoto =>

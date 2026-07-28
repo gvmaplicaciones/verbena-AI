@@ -195,11 +195,57 @@ async function verifyNewPhoto(
 
   const session = await ensureActiveSession(admin, userId, verifiedPhoto.id);
 
+  // Limitar a 10 fotos persistidas por usuario -- la más antigua se elimina si
+  // se supera el límite. Suscriptores únicamente (is_persisted=true solo se
+  // marca para ellos). Si falla la purga no se bloquea la respuesta: el límite
+  // es una restricción de almacenamiento, no de verificación.
+  if (isSubscribed) {
+    await enforcePersistedPhotoLimit(admin, userId).catch((err) =>
+      console.error("enforcePersistedPhotoLimit error (non-fatal)", err),
+    );
+  }
+
   return json({
     status: "approved",
     verifiedPhotoId: verifiedPhoto.id,
     photoSessionId: session.id,
   });
+}
+
+/**
+ * Si el usuario tiene más de 10 fotos persistidas, elimina las más antiguas
+ * hasta volver a 10. Borrado de Storage primero; si falla, no se actualiza la BD.
+ */
+async function enforcePersistedPhotoLimit(
+  admin: ReturnType<typeof supabaseAdmin>,
+  userId: string,
+): Promise<void> {
+  const { data: photos, error } = await admin
+    .from("verified_photos")
+    .select("id, storage_path")
+    .eq("user_id", userId)
+    .eq("is_persisted", true)
+    .not("storage_path", "is", null)
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+  if (!photos || photos.length <= 10) return;
+
+  const excess = photos.slice(0, photos.length - 10);
+  const paths = excess
+    .map((p: { storage_path: string | null }) => p.storage_path)
+    .filter((p: string | null): p is string => !!p);
+
+  if (paths.length > 0) {
+    const { error: removeErr } = await admin.storage.from("verified-photos").remove(paths);
+    if (removeErr) throw removeErr;
+  }
+
+  const excessIds = excess.map((p: { id: string }) => p.id);
+  const { error: updateErr } = await admin
+    .from("verified_photos")
+    .update({ storage_path: null, is_persisted: false })
+    .in("id", excessIds);
+  if (updateErr) throw updateErr;
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {

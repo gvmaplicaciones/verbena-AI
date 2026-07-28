@@ -10,6 +10,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import '../../../core/router/app_routes.dart';
 import '../../../core/theme/verbena_theme.dart';
 import '../../../core/widgets/confetti_background.dart';
+import '../../../data/models/garment.dart';
 import '../../../data/models/generation_source.dart';
 import '../../../data/models/processing_args.dart';
 import '../../../data/models/result_args.dart';
@@ -85,7 +86,12 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen>
     if (_comingSoon) return;
     WakelockPlus.enable();
     _pulseController.repeat(reverse: true);
-    _verifying = widget.args.needsVerification;
+    // Modos que omiten verify-photo (RemoveBackground, EnhanceQuality): la foto
+    // va directa a la edge function como base64, sin pasar por el paso previo
+    // de verificación NSFW/Rekognition.
+    final skipsVerification = widget.args.source is RemoveBackgroundSource ||
+        widget.args.source is EnhanceQualitySource;
+    _verifying = !skipsVerification && widget.args.needsVerification;
     _run();
   }
 
@@ -100,7 +106,11 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen>
   Future<void> _run() async {
     String? photoSessionId = widget.args.photoSessionId;
 
-    if (photoSessionId == null) {
+    // Modos que omiten verify-photo: los bytes van directos a la edge function.
+    final skipsVerification = widget.args.source is RemoveBackgroundSource ||
+        widget.args.source is EnhanceQualitySource;
+
+    if (!skipsVerification && photoSessionId == null) {
       if (!mounted) return;
       setState(() {
         _verifying = true;
@@ -167,7 +177,52 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen>
       }
     }
 
-    if (photoSessionId == null || !mounted) return;
+    // Prendas del modo "Probar un look": las de origen Armario ya están
+    // verificadas (van directas como garmentId); las recién elegidas
+    // (bytes) hace falta pasarlas por verify-photo aquí, igual que la
+    // foto principal/segunda foto.
+    final garmentPhotoSessionIds = <String>[];
+    final garmentIds = <String>[];
+    final garmentPicks = widget.args.garmentPicks ?? const [];
+    if (garmentPicks.isNotEmpty) {
+      if (!mounted) return;
+      if (!_verifying) setState(() => _verifying = true);
+      for (final pick in garmentPicks) {
+        switch (pick) {
+          case GarmentPickWardrobe(:final garmentId):
+            garmentIds.add(garmentId);
+          case GarmentPickBytes(:final bytes, :final contentType):
+            try {
+              final result = await ref.read(photoRepositoryProvider).verifyPhoto(
+                    bytes: bytes,
+                    contentType: contentType,
+                  );
+              if (result.status == VerifiedPhotoStatus.approved) {
+                garmentPhotoSessionIds.add(result.photoSessionId!);
+              } else if (result.status == VerifiedPhotoStatus.rejected) {
+                _fail(_ProcessingError(_ErrorKind.rejectedPhoto, result.reason));
+                return;
+              } else {
+                _fail(const _ProcessingError(_ErrorKind.appealedPhoto));
+                return;
+              }
+            } catch (e, st) {
+              developer.log('verifyPhoto (garment) failed',
+                  name: 'ProcessingScreen', error: e, stackTrace: st);
+              unawaited(
+                Sentry.captureException(e,
+                    stackTrace: st,
+                    hint: Hint.withMap({'stage': 'verifyGarmentPhoto'})),
+              );
+              _fail(const _ProcessingError(_ErrorKind.generic));
+              return;
+            }
+        }
+      }
+    }
+
+    if (!skipsVerification && photoSessionId == null) return;
+    if (!mounted) return;
 
     setState(() {
       _verifying = false;
@@ -180,8 +235,13 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen>
       final outcome = await ref.read(generationRepositoryProvider).generate(
             source: widget.args.source,
             photoSessionId: photoSessionId,
+            directPhotoBytes: skipsVerification ? widget.args.photoBytes : null,
+            directContentType: skipsVerification ? widget.args.contentType : null,
             secondPhotoSessionId: secondPhotoSessionId,
             maskBytes: widget.args.maskBytes,
+            garmentPhotoSessionIds:
+                garmentPhotoSessionIds.isEmpty ? null : garmentPhotoSessionIds,
+            garmentIds: garmentIds.isEmpty ? null : garmentIds,
           );
       _progressTimer?.cancel();
       if (!mounted) return;

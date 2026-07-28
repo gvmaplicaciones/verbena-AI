@@ -17,4 +17,11 @@ class VerifiedPhotoSummary {
         storagePath: json['storage_path'] as String,
         createdAt: DateTime.parse(json['created_at'] as String),
       );
+
+  String get formattedDate {
+    final dt = createdAt.toLocal();
+    return '${dt.day.toString().padLeft(2, '0')}/'
+        '${dt.month.toString().padLeft(2, '0')}/'
+        '${dt.year}';
+  }
 }

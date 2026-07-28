@@ -30,9 +30,21 @@ class _GenerationShareActionsState extends State<GenerationShareActions> {
   bool _busy = false;
 
   Future<Uint8List> _downloadResultBytes() async {
+    final (bytes, _) = await _downloadResultBytesWithExtension();
+    return bytes;
+  }
+
+  /// Descarga los bytes junto con la extensión real del resultado a partir
+  /// del Content-Type servido -- no se puede asumir .jpg para todos los
+  /// modos: "Eliminar fondo" sirve PNG con canal alfa, y compartirlo como
+  /// .jpg confundiría al receptor sobre el tipo de archivo aunque los bytes
+  /// en sí sean correctos.
+  Future<(Uint8List, String)> _downloadResultBytesWithExtension() async {
     final request = await HttpClient().getUrl(Uri.parse(widget.resultUrl));
     final response = await request.close();
-    return consolidateHttpClientResponseBytes(response);
+    final extension = response.headers.value('content-type') == 'image/png' ? 'png' : 'jpg';
+    final bytes = await consolidateHttpClientResponseBytes(response);
+    return (bytes, extension);
   }
 
   void _showSnack(String message) {
@@ -45,9 +57,9 @@ class _GenerationShareActionsState extends State<GenerationShareActions> {
     if (_busy) return;
     setState(() => _busy = true);
     try {
-      final bytes = await _downloadResultBytes();
+      final (bytes, extension) = await _downloadResultBytesWithExtension();
       final tempFile = File(
-          '${Directory.systemTemp.path}/verbenai_${widget.generationId}.jpg');
+          '${Directory.systemTemp.path}/verbenai_${widget.generationId}.$extension');
       await tempFile.writeAsBytes(bytes);
       await Share.shareXFiles(
         [XFile(tempFile.path)],

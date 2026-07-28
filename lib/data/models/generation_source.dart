@@ -59,9 +59,30 @@ class ChangeBackgroundSource extends GenerationSource {
   final String placeText;
 }
 
-/// Modo "Probar un look" (grid de Home, FASE 0). Sin campos propios todavía.
+/// Modo "Probar un look" (grid de Home, FASE 5: prunaai/p-image-try-on). Sin
+/// campos propios -- la persona viaja como el resto de modos
+/// (photoBytes/photoSessionId) y las prendas (1-4) viajan aparte en
+/// ProcessingArgs.garmentPicks, igual que el patrón ya usado para la segunda
+/// foto de ChangeBackgroundSource/AddElementSource.
 class TryOnSource extends GenerationSource {
   const TryOnSource();
+}
+
+/// Modo "Eliminar fondo" (grid de Home, bria/remove-background). Sin campos
+/// propios ni texto/máscara -- flujo simplificado: seleccionar foto y generar
+/// directo, sin ninguna instrucción del usuario. El resultado preserva el
+/// canal alfa y se guarda/comparte como PNG (ver generate-remove-background),
+/// a diferencia del resto de modos.
+class RemoveBackgroundSource extends GenerationSource {
+  const RemoveBackgroundSource();
+}
+
+/// Modo "Mejorar calidad" (grid de Home, tencentarc/gfpgan). Sin campos
+/// propios -- flujo simplificado igual que RemoveBackgroundSource: seleccionar
+/// foto y generar directo, sin instrucción del usuario. Salida JPEG normal
+/// (sin canal alfa), misma ruta de guardado/compartido que el resto de modos.
+class EnhanceQualitySource extends GenerationSource {
+  const EnhanceQualitySource();
 }
 
 /// Antiguo modo "Modificar algo" (5ª ficha de Home) -- fusionado con
@@ -85,6 +106,8 @@ extension GenerationSourceStatus on GenerationSource {
         RemoveElementSource(mode: RemoveTargetMode.mask) => false,
         ChangeBackgroundSource() => false,
         ModifyElementSource() => false,
-        TryOnSource() => true,
+        TryOnSource() => false,
+        RemoveBackgroundSource() => false,
+        EnhanceQualitySource() => false,
       };
 }

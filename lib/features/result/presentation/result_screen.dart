@@ -10,6 +10,8 @@ import '../../../data/models/generation_outcome.dart';
 import '../../../data/models/generation_source.dart';
 import '../../../data/models/processing_args.dart';
 import '../../../data/models/result_args.dart';
+import '../../../data/repositories/photo_repository.dart';
+import 'before_after_slider.dart';
 import 'generation_actions.dart';
 
 String _creditLabel(GenerationCreditSource? source) => switch (source) {
@@ -40,20 +42,28 @@ class _ResultScreenState extends ConsumerState<ResultScreen> {
       ChangeBackgroundSource() =>
         source.placeText.isEmpty ? 'Cambiar fondo' : '"${source.placeText}"',
       ModifyElementSource() => '"${source.prompt}"',
-      // FASE 0: inalcanzable en la práctica (ver GenerationSourceStatus.
-      // isComingSoon), solo para que el switch exhaustivo compile.
       TryOnSource() => 'Probar un look',
+      RemoveBackgroundSource() => 'Eliminar fondo',
+      EnhanceQualitySource() => 'Mejorar calidad',
     };
   }
 
   void _generateAgain() {
-    context.pushReplacement(
-      AppRoutes.processing,
-      extra: ProcessingArgs.fromSession(
-        source: widget.args.source,
-        photoSessionId: widget.args.photoSessionId,
-      ),
-    );
+    final sessionId = widget.args.photoSessionId;
+    if (sessionId != null) {
+      context.pushReplacement(
+        AppRoutes.processing,
+        extra: ProcessingArgs.fromSession(
+          source: widget.args.source,
+          photoSessionId: sessionId,
+        ),
+      );
+    } else {
+      // Modos sin verify-photo (RemoveBackground, EnhanceQuality): los bytes
+      // originales no se conservan entre pantallas, así que "Otra vez" vuelve
+      // a selección de foto en vez de re-procesar.
+      context.go(AppRoutes.photoSelect, extra: widget.args.source);
+    }
   }
 
   @override
@@ -70,12 +80,37 @@ class _ResultScreenState extends ConsumerState<ResultScreen> {
                 fit: StackFit.expand,
                 children: [
                   Container(color: const Color(0xFF2B2118)),
-                  CachedNetworkImage(
-                    imageUrl: widget.args.resultUrl,
-                    fit: BoxFit.contain,
-                    placeholder: (context, url) =>
-                        const Center(child: CircularProgressIndicator(color: Colors.white)),
-                  ),
+                  if (widget.args.photoSessionId != null)
+                    Consumer(
+                      builder: (context, ref, _) {
+                        final originalUrlAsync = ref
+                            .watch(originalPhotoUrlProvider(widget.args.photoSessionId!));
+                        return originalUrlAsync.when(
+                          loading: () => CachedNetworkImage(
+                            imageUrl: widget.args.resultUrl,
+                            fit: BoxFit.contain,
+                            placeholder: (context, url) => const Center(
+                                child: CircularProgressIndicator(color: Colors.white)),
+                          ),
+                          error: (err, st) => CachedNetworkImage(
+                            imageUrl: widget.args.resultUrl,
+                            fit: BoxFit.contain,
+                          ),
+                          data: (beforeUrl) => BeforeAfterSlider(
+                            beforeUrl: beforeUrl,
+                            afterUrl: widget.args.resultUrl,
+                            checkerboardAfter: widget.args.source is RemoveBackgroundSource,
+                          ),
+                        );
+                      },
+                    )
+                  else
+                    CachedNetworkImage(
+                      imageUrl: widget.args.resultUrl,
+                      fit: BoxFit.contain,
+                      placeholder: (context, url) => const Center(
+                          child: CircularProgressIndicator(color: Colors.white)),
+                    ),
                   Positioned(
                     top: 16,
                     left: 16,

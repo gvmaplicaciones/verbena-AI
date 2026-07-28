@@ -3,6 +3,16 @@ allprojects {
         google()
         mavenCentral()
     }
+    // posthog_flutter usa la versión dinámica "3.+" que requiere resolver
+    // maven-metadata.xml en red y falla con PKIX/TLS en este entorno. Se fija
+    // a la última versión disponible en el caché local de Gradle. Aplica a
+    // todos los subproyectos (incluido posthog_flutter) para cubrir tanto
+    // debugCompileClasspath como debugRuntimeClasspath.
+    configurations.all {
+        resolutionStrategy {
+            force("com.posthog:posthog-android:3.56.2")
+        }
+    }
 }
 
 val newBuildDir: Directory =

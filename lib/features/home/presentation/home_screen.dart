@@ -218,7 +218,9 @@ class _ModeInfo {
   final String title;
   final String description;
   final GenerationSource source;
-  final String imagePath;
+  // null mientras no haya asset propio todavía (ver RemoveBackgroundSource) --
+  // _ModeCard pinta un icono de relleno en vez de Image.asset en ese caso.
+  final String? imagePath;
 }
 
 /// FASE 0: sustituye a las pestañas Catálogo/Libertad -- el código de
@@ -249,6 +251,18 @@ const _modes = [
     description: 'Pruébate una prenda de ropa en tu foto',
     source: TryOnSource(),
     imagePath: 'assets/modes/try_on.jpeg',
+  ),
+  _ModeInfo(
+    title: 'Eliminar fondo',
+    description: 'Quita el fondo de tu foto al instante',
+    source: RemoveBackgroundSource(),
+    imagePath: null,
+  ),
+  _ModeInfo(
+    title: 'Mejorar calidad',
+    description: 'Arregla y mejora la nitidez de tu foto',
+    source: EnhanceQualitySource(),
+    imagePath: null,
   ),
 ];
 
@@ -310,7 +324,14 @@ class _ModeCard extends StatelessWidget {
           children: [
             AspectRatio(
               aspectRatio: 1,
-              child: Image.asset(mode.imagePath, fit: BoxFit.contain),
+              child: mode.imagePath != null
+                  ? Image.asset(mode.imagePath!, fit: BoxFit.contain)
+                  : Container(
+                      color: VerbenaColors.teal.withValues(alpha: 0.08),
+                      alignment: Alignment.center,
+                      child: const Icon(Icons.auto_fix_high_rounded,
+                          size: 56, color: VerbenaColors.teal),
+                    ),
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
