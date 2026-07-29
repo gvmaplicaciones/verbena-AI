@@ -95,10 +95,16 @@ const REMOVE_BACKGROUND_MODEL =
   Deno.env.get("REPLICATE_REMOVE_BACKGROUND_MODEL") ?? "bria/remove-background";
 
 // Modo "Mejorar calidad": tencentarc/gfpgan, version v1.4. Parámetros fijados
-// por el usuario: version "v1.4", scale 2. Salida: un único string (URL).
-// Resultado JPEG normal (sin canal alfa), a diferencia de bria/remove-background.
+// por el usuario: version "v1.4" (input del propio modelo, algoritmo GFPGAN),
+// scale 2. Salida: un único string (URL). Resultado JPEG normal (sin canal
+// alfa), a diferencia de bria/remove-background.
+// El hash tras ":" es la versión de Replicate (no confundir con el input
+// "version": "v1.4" de arriba) -- imprescindible porque gfpgan es un modelo
+// comunitario, no oficial: el endpoint /v1/models/{owner}/{name}/predictions
+// (sin version pin) solo existe para modelos oficiales y devolvía 404 aquí.
 const ENHANCE_QUALITY_MODEL =
-  Deno.env.get("REPLICATE_ENHANCE_QUALITY_MODEL") ?? "tencentarc/gfpgan";
+  Deno.env.get("REPLICATE_ENHANCE_QUALITY_MODEL") ??
+  "tencentarc/gfpgan:0fbacf7afc6c144e5be9767cff80f25aff23e52b0708f17e20f9879b2f21516c";
 
 export interface ContentFilterResult {
   passed: boolean;

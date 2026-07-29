@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -95,7 +96,7 @@ class _HomeHeaderState extends State<_HomeHeader> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text('VERBENA', style: VerbenaText.display(size: 24)),
+          Text('VerbenAI', style: VerbenaText.display(size: 24)),
           GestureDetector(
             onTap: () => context.push(AppRoutes.profile),
             onLongPress: _onAvatarLongPress,
@@ -129,51 +130,55 @@ class _CreditsCard extends ConsumerWidget {
           return Stack(
             clipBehavior: Clip.none,
             children: [
-              Container(
-                width: double.infinity,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                decoration: BoxDecoration(
-                  color: VerbenaColors.teal,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'CRÉDITOS DE TU PLAN',
-                      style: VerbenaText.body(
-                        size: 11,
-                        color: VerbenaColors.background.withValues(alpha: 0.8),
-                        weight: FontWeight.w500,
-                      ).copyWith(letterSpacing: 0.5),
-                    ),
-                    const SizedBox(height: 4),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.baseline,
-                      textBaseline: TextBaseline.alphabetic,
-                      children: [
-                        Text(
-                          '${credits.tierUsed}/${credits.tierTotal}',
-                          style: VerbenaText.display(
-                              size: 24, color: VerbenaColors.background),
-                        ),
-                        if (_cadenceLabel(credits.activePlanId)
-                            case final label?) ...[
-                          const SizedBox(width: 6),
+              GestureDetector(
+                onTap: () => context.push(AppRoutes.profile),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: VerbenaColors.teal,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'FOTOS DE TU PLAN',
+                        style: VerbenaText.body(
+                          size: 11,
+                          color:
+                              VerbenaColors.background.withValues(alpha: 0.8),
+                          weight: FontWeight.w500,
+                        ).copyWith(letterSpacing: 0.5),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.baseline,
+                        textBaseline: TextBaseline.alphabetic,
+                        children: [
                           Text(
-                            label,
-                            style: VerbenaText.body(
-                              size: 13,
-                              color: VerbenaColors.background
-                                  .withValues(alpha: 0.85),
-                              weight: FontWeight.w500,
-                            ),
+                            '${credits.tierUsed}/${credits.tierTotal}',
+                            style: VerbenaText.display(
+                                size: 24, color: VerbenaColors.background),
                           ),
+                          if (_cadenceLabel(credits.activePlanId)
+                              case final label?) ...[
+                            const SizedBox(width: 6),
+                            Text(
+                              label,
+                              style: VerbenaText.body(
+                                size: 13,
+                                color: VerbenaColors.background
+                                    .withValues(alpha: 0.85),
+                                weight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
                         ],
-                      ],
-                    ),
-                  ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
               if (credits.extraCredits > 0)
@@ -212,15 +217,15 @@ class _ModeInfo {
     required this.title,
     required this.description,
     required this.source,
-    required this.imagePath,
+    required this.imageBaseName,
   });
 
   final String title;
   final String description;
   final GenerationSource source;
-  // null mientras no haya asset propio todavía (ver RemoveBackgroundSource) --
-  // _ModeCard pinta un icono de relleno en vez de Image.asset en ese caso.
-  final String? imagePath;
+  // Nombre base del par before/after en assets/modes/ -- p.ej. "add" ->
+  // add-before.jpg + add-after.jpg (ver _ModeThumbnail).
+  final String imageBaseName;
 }
 
 /// FASE 0: sustituye a las pestañas Catálogo/Libertad -- el código de
@@ -232,44 +237,44 @@ const _modes = [
     title: 'Añade o modifica algo',
     description: 'Añade algo nuevo o cambia lo que ya tienes en tu foto',
     source: AddElementSource(),
-    imagePath: 'assets/modes/add_element.jpeg',
+    imageBaseName: 'add',
   ),
   _ModeInfo(
     title: 'Eliminar algo',
     description: 'Quita algo de tu foto, describiéndolo o marcándolo',
     source: RemoveElementSource(),
-    imagePath: 'assets/modes/remove_element.jpeg',
+    imageBaseName: 'remove',
   ),
   _ModeInfo(
     title: 'Cambiar fondo',
     description: 'Cambia el fondo de tu foto por otro distinto',
     source: ChangeBackgroundSource(),
-    imagePath: 'assets/modes/change_background.jpeg',
+    imageBaseName: 'background',
   ),
   _ModeInfo(
     title: 'Probar un look',
     description: 'Pruébate una prenda de ropa en tu foto',
     source: TryOnSource(),
-    imagePath: 'assets/modes/try_on.jpeg',
+    imageBaseName: 'tryon',
   ),
   _ModeInfo(
     title: 'Eliminar fondo',
     description: 'Quita el fondo de tu foto al instante',
     source: RemoveBackgroundSource(),
-    imagePath: 'assets/modes/remove_background.jpeg',
+    imageBaseName: 'removebg',
   ),
   _ModeInfo(
     title: 'Mejorar calidad',
     description: 'Arregla y mejora la nitidez de tu foto',
     source: EnhanceQualitySource(),
-    imagePath: 'assets/modes/enhance_quality.jpeg',
+    imageBaseName: 'enhance',
   ),
 ];
 
-/// Fichas grandes en lista vertical (no grid) -- con 4 fichas de este tamaño
-/// caben ~2 en pantalla y el resto se ve haciendo scroll (ya está dentro del
-/// SingleChildScrollView de HomeScreen). Prioriza que la imagen se vea grande
-/// para identificar el modo de un vistazo, en vez de encajar las 4 a la vez.
+/// Fichas compactas en lista vertical (miniatura + texto en fila) -- las
+/// fichas cuadradas a ancho completo enterraban el resto de modos bajo un
+/// scroll larguísimo (una sola ficha llenaba casi la pantalla entera).
+/// Con esta altura caben al menos 2 fichas completas por pantalla.
 class _ModeGrid extends StatelessWidget {
   const _ModeGrid();
 
@@ -279,8 +284,8 @@ class _ModeGrid extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
       child: Column(
         children: [
-          for (final mode in _modes) ...[
-            _ModeCard(mode: mode),
+          for (final (index, mode) in _modes.indexed) ...[
+            _ModeCard(mode: mode, staggerIndex: index),
             if (mode != _modes.last) const SizedBox(height: 16),
           ],
         ],
@@ -290,9 +295,13 @@ class _ModeGrid extends StatelessWidget {
 }
 
 class _ModeCard extends StatelessWidget {
-  const _ModeCard({required this.mode});
+  const _ModeCard({required this.mode, required this.staggerIndex});
 
   final _ModeInfo mode;
+  // Posición en el grid -- escalona el arranque del crossfade de la
+  // miniatura (ver _ModeThumbnail.startDelay) para que las 6 tarjetas no
+  // crucen a la vez.
+  final int staggerIndex;
 
   void _onTap(BuildContext context) {
     // "Eliminar algo" tiene un paso previo de elegir sub-modo (por texto /
@@ -312,6 +321,7 @@ class _ModeCard extends StatelessWidget {
       onTap: () => _onTap(context),
       child: Container(
         clipBehavior: Clip.antiAlias,
+        padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
           color: VerbenaColors.card,
           borderRadius: BorderRadius.circular(18),
@@ -319,40 +329,124 @@ class _ModeCard extends StatelessWidget {
               color: VerbenaColors.textDark.withValues(alpha: 0.12),
               width: 1.5),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
           children: [
-            AspectRatio(
-              aspectRatio: 1,
-              child: mode.imagePath != null
-                  ? Image.asset(mode.imagePath!, fit: BoxFit.contain)
-                  : Container(
-                      color: VerbenaColors.teal.withValues(alpha: 0.08),
-                      alignment: Alignment.center,
-                      child: const Icon(Icons.auto_fix_high_rounded,
-                          size: 56, color: VerbenaColors.teal),
-                    ),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: _ModeThumbnail(
+                imageBaseName: mode.imageBaseName,
+                startDelay: Duration(milliseconds: 300 * staggerIndex),
+              ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+            const SizedBox(width: 14),
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(mode.title,
                       style:
-                          VerbenaText.body(size: 17, weight: FontWeight.w700)),
+                          VerbenaText.body(size: 16, weight: FontWeight.w700)),
                   const SizedBox(height: 4),
                   Text(
                     mode.description,
                     style: VerbenaText.body(
-                            size: 13, color: VerbenaColors.textMuted)
+                            size: 12.5, color: VerbenaColors.textMuted)
                         .copyWith(height: 1.3),
                   ),
                 ],
               ),
             ),
+            const SizedBox(width: 6),
+            Icon(Icons.chevron_right_rounded,
+                color: VerbenaColors.textDark.withValues(alpha: 0.35)),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Miniatura con crossfade automático before/after (2s por imagen, ~350ms de
+/// transición) -- sustituye a la imagen estática única. [startDelay] escalona
+/// el primer cambio entre tarjetas para que no crucen las 6 a la vez.
+/// El ciclo se engancha a TickerMode en vez de a la ruta directamente: se
+/// pausa solo mientras Home queda tapada por otra pantalla (p.ej. al entrar
+/// en Perfil) y se reanuda al volver a ser la ruta visible, sin gastar ciclos
+/// de fondo mientras tanto.
+class _ModeThumbnail extends StatefulWidget {
+  const _ModeThumbnail({required this.imageBaseName, required this.startDelay});
+
+  final String imageBaseName;
+  final Duration startDelay;
+
+  @override
+  State<_ModeThumbnail> createState() => _ModeThumbnailState();
+}
+
+class _ModeThumbnailState extends State<_ModeThumbnail> {
+  static const _holdDuration = Duration(seconds: 2);
+  static const _crossFadeDuration = Duration(milliseconds: 350);
+
+  bool _showAfter = false;
+  Timer? _timer;
+  ValueListenable<bool>? _tickerModeNotifier;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final notifier = TickerMode.getNotifier(context);
+    if (!identical(notifier, _tickerModeNotifier)) {
+      _tickerModeNotifier?.removeListener(_onTickerModeChanged);
+      _tickerModeNotifier = notifier..addListener(_onTickerModeChanged);
+      _onTickerModeChanged();
+    }
+  }
+
+  void _onTickerModeChanged() {
+    if (_tickerModeNotifier!.value) {
+      _scheduleNext(widget.startDelay);
+    } else {
+      _timer?.cancel();
+    }
+  }
+
+  void _scheduleNext(Duration delay) {
+    _timer?.cancel();
+    _timer = Timer(delay, () {
+      if (!mounted) return;
+      setState(() => _showAfter = !_showAfter);
+      _scheduleNext(_holdDuration);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _tickerModeNotifier?.removeListener(_onTickerModeChanged);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 76,
+      height: 76,
+      child: AnimatedCrossFade(
+        firstChild: Image.asset(
+          'assets/modes/${widget.imageBaseName}-before.jpg',
+          fit: BoxFit.cover,
+          width: 76,
+          height: 76,
+        ),
+        secondChild: Image.asset(
+          'assets/modes/${widget.imageBaseName}-after.jpg',
+          fit: BoxFit.cover,
+          width: 76,
+          height: 76,
+        ),
+        crossFadeState:
+            _showAfter ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+        duration: _crossFadeDuration,
       ),
     );
   }

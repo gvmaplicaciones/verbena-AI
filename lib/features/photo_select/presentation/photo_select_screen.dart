@@ -393,29 +393,38 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-                    child: Row(
+                  // Fondo sólido (no el confeti transparente) para que el
+                  // contenido de debajo nunca se vea a través del título al
+                  // hacer scroll, y el confeti decorativo nunca quede detrás
+                  // del texto.
+                  Container(
+                    width: double.infinity,
+                    color: VerbenaColors.background,
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        VerbenaRoundIconButton(
-                          icon: const VerbenaBackChevronIcon(),
-                          onTap: () => context.pop(),
+                        Row(
+                          children: [
+                            VerbenaRoundIconButton(
+                              icon: const VerbenaBackChevronIcon(),
+                              onTap: () => context.pop(),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                _title,
+                                style: VerbenaText.display(size: 20),
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            _title,
-                            style: VerbenaText.display(size: 20),
-                          ),
-                        ),
+                        const SizedBox(height: 8),
+                        Text(_subtitle,
+                            style: VerbenaText.body(
+                                size: 14, color: VerbenaColors.textMuted)),
                       ],
                     ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
-                    child: Text(_subtitle,
-                        style: VerbenaText.body(
-                            size: 14, color: VerbenaColors.textMuted)),
                   ),
                   Expanded(
                     child: noCredits
@@ -424,7 +433,13 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
                                 extra: 'photo_select_no_credits'),
                           )
                         : _isPromptSource
-                            ? _buildPromptBody(recentPhotos)
+                            ? Column(
+                                children: [
+                                  Expanded(
+                                      child: _buildPromptBody(recentPhotos)),
+                                  _buildStickyGenerateBar(),
+                                ],
+                              )
                             : ListView(
                                 padding: const EdgeInsets.fromLTRB(
                                     20, 22, 20, 22),
@@ -474,6 +489,7 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
         .map((img) => img.recentPhotoId)
         .whereType<String>()
         .toSet();
+    final hasFreshImages = _selectedImages.any((img) => img.bytes != null);
     final hasBackgroundReferenceImage =
         widget.source is ChangeBackgroundSource && _selectedImages.length > 1;
     final suggestions = switch (widget.source) {
@@ -516,11 +532,10 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
           subtitle: 'Busca una que te guste',
           onTap: () => _pickFrom(ImageSource.gallery),
         ),
-        if (_selectedImages.isNotEmpty) ...[
+        if (hasFreshImages) ...[
           const SizedBox(height: 16),
           _SelectedImagesTray(
             images: _selectedImages,
-            maxImages: _maxSelectedImages,
             onRemove: _removeSelectedImage,
           ),
         ],
@@ -604,22 +619,48 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
             ),
           ),
         ],
-        const SizedBox(height: 14),
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton(
-            onPressed: _canSubmitPrompt ? _submitPrompt : null,
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 15),
-              shape:
-                  RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-              textStyle: VerbenaText.display(
-                  size: 15, color: VerbenaColors.background, letterSpacing: 0.4),
-            ),
-            child: const Text('GENERAR'),
-          ),
-        ),
       ],
+    );
+  }
+
+  /// Barra fija con fondo sólido para que el contenido nunca se vea a través
+  /// al hacer scroll por debajo -- deshabilitada hasta tener foto+texto, con
+  /// un hint de qué falta en vez de dejar el botón muerto sin explicación.
+  Widget _buildStickyGenerateBar() {
+    final hint = _selectedImages.isEmpty
+        ? 'Añade al menos una foto para continuar'
+        : (!_canSubmitPrompt ? 'Cuéntanos qué quieres hacer' : null);
+    return Container(
+      width: double.infinity,
+      color: VerbenaColors.background,
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (hint != null) ...[
+            Text(hint,
+                style: VerbenaText.body(
+                    size: 12.5, color: VerbenaColors.textMuted)),
+            const SizedBox(height: 8),
+          ],
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _canSubmitPrompt ? _submitPrompt : null,
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 15),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14)),
+                textStyle: VerbenaText.display(
+                    size: 15,
+                    color: VerbenaColors.background,
+                    letterSpacing: 0.4),
+              ),
+              child: const Text('GENERAR'),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -652,11 +693,11 @@ class _NoCreditsState extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Te has quedado sin créditos',
+                Text('Te has quedado sin fotos',
                     style: VerbenaText.display(size: 17)),
                 const SizedBox(height: 8),
                 Text(
-                  'Hazte socio o compra créditos extra para seguir generando fotos.',
+                  'Hazte socio o compra fotos extra para seguir generando.',
                   style: VerbenaText.body(
                       size: 13.5, color: VerbenaColors.textMuted),
                 ),
@@ -710,49 +751,38 @@ class _PhotoTipBanner extends StatelessWidget {
   }
 }
 
-/// Mostrador de imágenes seleccionadas del modo "Añadir algo" -- aparece en
-/// cuanto hay al menos una (recién elegida o de fotos recientes), y viaja
-/// junto al prompt a ProcessingScreen. Tope según el modo (ver
-/// _PhotoSelectScreenState._maxSelectedImages).
+/// Mostrador de las fotos recién elegidas de cámara/galería del modo "Añadir
+/// algo" -- las fotos recientes ya seleccionadas se marcan con el check verde
+/// en su propia rejilla (_MultiSelectRecentPhotosSection), así que aquí solo
+/// se pintan las que vienen de bytes nuevos para no duplicar esa marca.
 class _SelectedImagesTray extends StatelessWidget {
   const _SelectedImagesTray({
     required this.images,
     required this.onRemove,
-    required this.maxImages,
   });
 
   final List<_SelectedImage> images;
   final ValueChanged<_SelectedImage> onRemove;
-  final int maxImages;
 
   @override
   Widget build(BuildContext context) {
+    final freshImages = images.where((img) => img.bytes != null).toList();
+    if (freshImages.isEmpty) return const SizedBox.shrink();
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: VerbenaColors.card,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
             color: VerbenaColors.textDark.withValues(alpha: 0.12), width: 1.5),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Text(
-            'Fotos seleccionadas (${images.length}/$maxImages)',
-            style: VerbenaText.body(
-                size: 12.5, weight: FontWeight.w600, color: VerbenaColors.textMuted),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              for (final image in images) ...[
-                _SelectedImageThumbnail(
-                    image: image, onRemove: () => onRemove(image)),
-                const SizedBox(width: 10),
-              ],
-            ],
-          ),
+          for (final image in freshImages) ...[
+            _SelectedImageThumbnail(
+                image: image, onRemove: () => onRemove(image)),
+            const SizedBox(width: 10),
+          ],
         ],
       ),
     );

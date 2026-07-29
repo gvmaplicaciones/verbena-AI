@@ -25,7 +25,7 @@ extra" superpuesto) — nunca A ni B.
 | Modelo | Función | Coste |
 |---|---|---|
 | `flux-1.1-pro` / `flux-dev` | Generación de plantillas (solo admin, una vez por escena) | irrelevante en volumen |
-| `falcons-ai/nsfw_image_detection` + AWS Rekognition | Verificación de contenido (NSFW + figuras públicas) — fotos de entrada en todos los modos, y resultado generado en los modos con prompt libre | bajo |
+| `falcons-ai/nsfw_image_detection` + AWS Rekognition | Verificación de contenido (NSFW + figuras públicas) — fotos de entrada en todos los modos salvo Eliminar fondo y Mejorar calidad (ver excepción en Reglas de negocio), y resultado generado en los modos con prompt libre | bajo |
 | `openai/gpt-image-2` | Edición por instrucciones — modos Catálogo, Añadir algo, Eliminar algo (sustituye a `cdingram/face-swap` y `flux-kontext-pro`, ya no se usan, ver `_shared/replicate.ts`) | según nº de imágenes de referencia |
 | `bytedance/seedream-4.5` | Recomposición de fondo — modo Cambiar fondo (FASE 3). Parámetros confirmados con predicción real: `image_input` (array de data URIs), `aspect_ratio "match_input_image"`, `height/width 2048`, `size "2K"`, `max_images 1`, `sequential_image_generation "disabled"` | según volumen |
 
@@ -33,8 +33,15 @@ extra" superpuesto) — nunca A ni B.
 
 **Verificación de identidad real (crítico, no negociable)**:
 - La foto que sube el usuario pasa SIEMPRE por verificación (NSFW + 
-  Rekognition de figuras públicas), en todos los modos. En modos con prompt 
-  libre (p.ej. Añadir algo), además se revisa el resultado generado.
+  Rekognition de figuras públicas), en todos los modos que sintetizan 
+  contenido nuevo. En modos con prompt libre (p.ej. Añadir algo), además se 
+  revisa el resultado generado.
+- Excepción deliberada (decisión de producto, 2026-07-29): los modos 
+  Eliminar fondo y Mejorar calidad NO verifican ni validan la foto de 
+  entrada — no sintetizan contenido nuevo, solo procesan la imagen 
+  existente. Aceptan `photoBase64` directo sin pasar por verify-photo (ver 
+  migración 20260728000000). No añadir validación aquí sin confirmar con el 
+  usuario.
 - Verificación por hash exacto del archivo, una vez por sesión, reutilizable 
   en todas las generaciones de esa sesión.
 - Verificar SIEMPRE antes de descontar crédito. Si falla, no se cobra nada.

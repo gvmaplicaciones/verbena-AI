@@ -94,6 +94,24 @@ class _PaywallScreenState extends ConsumerState<PaywallScreen> {
         if (mounted) setState(() => _justBoughtPackId = ExtraPackIds.extra7);
       });
 
+  /// Requisito de aprobación de tienda: toda pantalla de compra necesita una
+  /// vía visible para recuperar compras ya hechas (p.ej. tras reinstalar).
+  Future<void> _restorePurchases() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final repo = ref.read(purchasesRepositoryProvider);
+      await repo.restorePurchases();
+      await repo.reconcile();
+      ref.invalidate(myCreditsProvider);
+      _showSnack('Tus compras se han restaurado.');
+    } catch (_) {
+      _showSnack('No hemos podido restaurar tus compras.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final creditsAsync = ref.watch(myCreditsProvider);
@@ -130,6 +148,16 @@ class _PaywallScreenState extends ConsumerState<PaywallScreen> {
     final mensualPrice = offerings == null
         ? mensual.priceDisplay
         : repo.findPackage(offerings, PlanIds.mensual)?.storeProduct.priceString ?? mensual.priceDisplay;
+    final weeklyPricePerMonth = offerings == null
+        ? null
+        : repo.findPackage(offerings, PlanIds.semanal)?.storeProduct.pricePerMonth;
+    final monthlyPriceRaw = offerings == null
+        ? null
+        : repo.findPackage(offerings, PlanIds.mensual)?.storeProduct.price;
+    final mensualSavingsPercent =
+        (weeklyPricePerMonth != null && monthlyPriceRaw != null && weeklyPricePerMonth > 0)
+            ? (((weeklyPricePerMonth - monthlyPriceRaw) / weeklyPricePerMonth) * 100).round()
+            : null;
     final extraPacksAsync = ref.watch(extraPacksProvider);
     final extra = extraPacksAsync.valueOrNull?.firstWhere((p) => p.packId == ExtraPackIds.extra7);
     final extraPrice = extra == null
@@ -154,26 +182,39 @@ class _PaywallScreenState extends ConsumerState<PaywallScreen> {
             ),
             const SizedBox(height: 18),
             if (credits.canUseFreeGeneration) ...[
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                decoration: BoxDecoration(
-                  color: VerbenaColors.card,
-                  border: Border.all(color: VerbenaColors.terracotta, width: 1.5),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Tu primera foto va gratis',
-                      style: VerbenaText.body(size: 14.5, weight: FontWeight.w700, color: VerbenaColors.terracotta),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Sin trampa ni cartón. Pruébalo antes de suscribirte.',
-                      style: VerbenaText.body(size: 12.5, color: VerbenaColors.textMuted),
-                    ),
-                  ],
+              GestureDetector(
+                // Accionable: cierra el paywall y deja al usuario justo donde
+                // estaba para elegir foto/modo y generar con su gratis.
+                onTap: () => context.pop(),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: VerbenaColors.card,
+                    border: Border.all(color: VerbenaColors.terracotta, width: 1.5),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Tu primera foto va gratis',
+                              style: VerbenaText.body(
+                                  size: 14.5, weight: FontWeight.w700, color: VerbenaColors.terracotta),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Sin trampa ni cartón. Toca para probarlo antes de suscribirte.',
+                              style: VerbenaText.body(size: 12.5, color: VerbenaColors.textMuted),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.chevron_right_rounded, color: VerbenaColors.terracotta),
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(height: 14),
@@ -182,7 +223,7 @@ class _PaywallScreenState extends ConsumerState<PaywallScreen> {
               title: 'Semanal',
               price: semanalPrice,
               cadence: '/semana',
-              creditsLabel: '${semanal.tierCredits} créditos cada semana',
+              creditsLabel: '${semanal.tierCredits} fotos cada semana',
               priceColor: VerbenaColors.teal,
               buttonColor: VerbenaColors.teal,
               buttonLabel: 'Elegir semanal',
@@ -193,18 +234,21 @@ class _PaywallScreenState extends ConsumerState<PaywallScreen> {
               title: 'Mensual',
               price: mensualPrice,
               cadence: '/mes',
-              creditsLabel: '${mensual.tierCredits} créditos cada mes',
+              creditsLabel: '${mensual.tierCredits} fotos cada mes',
               priceColor: VerbenaColors.terracotta,
               buttonColor: VerbenaColors.terracotta,
               buttonLabel: 'Elegir mensual',
               onTap: _subscribeMensual,
               highlighted: true,
               badgeLabel: 'MEJOR VALOR',
+              savingsLabel: (mensualSavingsPercent != null && mensualSavingsPercent > 0)
+                  ? 'Ahorras $mensualSavingsPercent% frente al semanal'
+                  : null,
             ),
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
               child: Text(
-                'Cancela cuando quieras, sin líos ni permanencia.',
+                'Se renueva automáticamente hasta que la canceles. Cancela cuando quieras, sin líos ni permanencia.',
                 textAlign: TextAlign.center,
                 style: VerbenaText.body(size: 12, color: VerbenaColors.textMuted),
               ),
@@ -221,7 +265,7 @@ class _PaywallScreenState extends ConsumerState<PaywallScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Recarga rápida — ${extra.credits} créditos',
+                      'Recarga rápida — ${extra.credits} fotos',
                       style: VerbenaText.body(size: 14.5, weight: FontWeight.w700),
                     ),
                     const SizedBox(height: 8),
@@ -257,7 +301,27 @@ class _PaywallScreenState extends ConsumerState<PaywallScreen> {
                 ),
               ),
             ],
-            const SizedBox(height: 24),
+            const SizedBox(height: 18),
+            Center(
+              child: TextButton(
+                onPressed: _busy ? null : _restorePurchases,
+                child: Text(
+                  'Restaurar compras',
+                  style: VerbenaText.body(size: 13, weight: FontWeight.w600, color: VerbenaColors.teal),
+                ),
+              ),
+            ),
+            Center(
+              child: TextButton(
+                onPressed: () => context.push(AppRoutes.privacyPolicy),
+                child: Text(
+                  'Política de privacidad',
+                  style: VerbenaText.body(size: 12, color: VerbenaColors.textMuted)
+                      .copyWith(decoration: TextDecoration.underline),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
           ],
         ),
       ),
@@ -277,6 +341,7 @@ class _PlanCard extends StatelessWidget {
     required this.onTap,
     this.highlighted = false,
     this.badgeLabel,
+    this.savingsLabel,
   });
 
   final String title;
@@ -289,6 +354,7 @@ class _PlanCard extends StatelessWidget {
   final VoidCallback onTap;
   final bool highlighted;
   final String? badgeLabel;
+  final String? savingsLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -322,6 +388,14 @@ class _PlanCard extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               Text(creditsLabel, style: VerbenaText.body(size: 13.5, color: VerbenaColors.textMuted)),
+              if (savingsLabel != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  savingsLabel!,
+                  style: VerbenaText.body(
+                      size: 12.5, weight: FontWeight.w700, color: VerbenaColors.teal),
+                ),
+              ],
               const SizedBox(height: 10),
               SizedBox(
                 width: double.infinity,

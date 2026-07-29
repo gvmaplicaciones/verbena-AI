@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -117,13 +118,20 @@ class GenerationRepository {
     // invoke() lanza FunctionException para cualquier respuesta no-2xx (402
     // incluido) en vez de devolverla como FunctionResponse normal -- por eso
     // el status se comprueba en el catch, no en response.status.
+    // Timeout por encima del presupuesto máximo del pipeline server-side
+    // (~180s de Replicate + verificación): si la Edge Function se cuelga, el
+    // cliente no puede quedarse esperando indefinidamente en Processing.
     final FunctionResponse response;
     try {
-      response = await _client.functions.invoke(functionName, body: body);
+      response = await _client.functions
+          .invoke(functionName, body: body)
+          .timeout(const Duration(seconds: 240));
     } on FunctionException catch (e) {
       if (e.status == 402) throw InsufficientCreditsException();
       final message = e.details is Map ? (e.details as Map)['error']?.toString() : null;
       throw GenerationException(message ?? '$functionName failed (${e.status})');
+    } on TimeoutException {
+      throw GenerationException('$functionName timed out after 240s');
     }
 
     final json = response.data as Map<String, dynamic>;

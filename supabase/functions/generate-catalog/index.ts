@@ -89,7 +89,8 @@ Deno.serve(async (req) => {
     if (genErr) throw genErr;
 
     try {
-      // Solo Catálogo puede usar el crédito gratis (regla de negocio).
+      // El crédito gratis vale en cualquier modo (allowFree=true en todos
+      // los generate-*, ver CLAUDE.md).
       await deductCredit(admin, user.id, generation.id, true);
     } catch (err) {
       if (err instanceof InsufficientCreditsError) {

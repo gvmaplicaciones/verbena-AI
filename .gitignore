@@ -17,6 +17,12 @@ android/.gradle/
 android/local.properties
 **/GeneratedPluginRegistrant.*
 
+# Crash logs de la JVM (Gradle/Android Studio)
+hs_err_pid*.log
+
+# Claude Code local
+.claude/
+
 # Secrets — nunca committear valores reales de --dart-define
 *.env
 .env

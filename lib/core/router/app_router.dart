@@ -18,8 +18,11 @@ import '../../features/onboarding/presentation/onboarding_screen.dart';
 import '../../features/paywall/presentation/paywall_screen.dart';
 import '../../features/photo_select/presentation/photo_select_screen.dart';
 import '../../features/processing/presentation/processing_screen.dart';
+import '../../features/profile/presentation/favorites_screen.dart';
+import '../../features/profile/presentation/my_creations_screen.dart';
 import '../../features/profile/presentation/privacy_policy_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
+import '../../features/profile/presentation/verified_photos_screen.dart';
 import '../../features/profile/presentation/wardrobe_screen.dart';
 import '../../data/models/mask_painter_args.dart';
 import '../../features/mask_painter/presentation/mask_painter_screen.dart';
@@ -68,6 +71,18 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.wardrobe,
         builder: (context, state) => const WardrobeScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.verifiedPhotos,
+        builder: (context, state) => const VerifiedPhotosScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.myCreations,
+        builder: (context, state) => const MyCreationsScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.favorites,
+        builder: (context, state) => const FavoritesScreen(),
       ),
       GoRoute(
         path: AppRoutes.processing,

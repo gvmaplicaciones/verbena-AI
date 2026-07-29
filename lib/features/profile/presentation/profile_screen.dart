@@ -1,10 +1,5 @@
-import 'dart:io';
-
-import 'package:cached_network_image/cached_network_image.dart';
-import 'package:flutter/foundation.dart' show consolidateHttpClientResponseBytes;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:gal/gal.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -13,16 +8,14 @@ import '../../../core/router/app_routes.dart';
 import '../../../core/theme/verbena_icons.dart';
 import '../../../core/theme/verbena_theme.dart';
 import '../../../core/widgets/confetti_background.dart';
-import '../../../data/models/generation_summary.dart';
 import '../../../data/models/user_credits.dart';
-import '../../../data/models/verified_photo_summary.dart';
 import '../../../data/repositories/account_repository.dart';
 import '../../../data/repositories/auth_repository.dart';
 import '../../../data/repositories/credits_repository.dart';
 import '../../../data/repositories/generations_repository.dart';
 import '../../../data/repositories/photo_repository.dart';
 import '../../../data/repositories/purchases_repository.dart';
-import '../../result/presentation/generation_actions.dart';
+import 'gallery_grids.dart';
 
 /// El handoff deja "Cancelar suscripción" como un confirm dialog puramente
 /// en la app (setState local) -- no existe ninguna llamada real que cancele
@@ -193,8 +186,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
   Widget _buildContent(UserCredits credits) {
     final persistedAsync = ref.watch(persistedPhotosProvider);
-    final generationsAsync =
-        credits.isSubscribed ? ref.watch(myGenerationsProvider) : null;
+    final generationsAsync = (credits.isSubscribed || credits.freeCreditUsed)
+        ? ref.watch(myGenerationsProvider)
+        : null;
 
     return AbsorbPointer(
       absorbing: _busy,
@@ -260,7 +254,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 12, vertical: 9),
                           ),
-                          child: Text('GESTIONAR',
+                          child: Text(
+                              credits.isSubscribed
+                                  ? 'GESTIONAR'
+                                  : 'SUSCRIBIRSE',
                               style: VerbenaText.display(
                                   size: 11.5, color: VerbenaColors.teal)),
                         ),
@@ -268,37 +265,67 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _CreditBox(
-                          value: '${credits.tierUsed}/${credits.tierTotal}',
-                          label: 'créditos del plan',
-                          color: VerbenaColors.teal,
+                  if (credits.isSubscribed)
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _CreditBox(
+                            value: '${credits.tierUsed}/${credits.tierTotal}',
+                            label: 'fotos del plan',
+                            color: VerbenaColors.teal,
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _CreditBox(
-                          value: '+${credits.extraCredits}',
-                          label: 'créditos extra',
-                          color: VerbenaColors.terracotta,
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _CreditBox(
+                            value: '+${credits.extraCredits}',
+                            label: 'fotos extra',
+                            color: VerbenaColors.terracotta,
+                          ),
                         ),
+                      ],
+                    )
+                  else
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: VerbenaColors.card,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                            color: VerbenaColors.textDark.withValues(alpha: 0.15),
+                            width: 1.5),
                       ),
-                    ],
-                  ),
+                      child: Column(
+                        children: [
+                          Text(
+                            credits.freeCreditUsed
+                                ? 'Foto gratis usada'
+                                : '1 foto gratis disponible',
+                            style: VerbenaText.display(size: 17),
+                          ),
+                          if (credits.freeCreditUsed) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              'Suscríbete para ver planes y seguir generando fotos.',
+                              textAlign: TextAlign.center,
+                              style: VerbenaText.body(
+                                  size: 12.5, color: VerbenaColors.textMuted),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
                   const SizedBox(height: 16),
-                  Text(
-                    'FOTOS VERIFICADAS',
-                    style: VerbenaText.body(
-                            size: 12,
-                            weight: FontWeight.w600,
-                            color: VerbenaColors.textMuted)
-                        .copyWith(letterSpacing: 0.4),
+                  _SectionHeader(
+                    title: 'FOTOS VERIFICADAS',
+                    onSeeAll: (persistedAsync.valueOrNull?.length ?? 0) > 5
+                        ? () => context.push(AppRoutes.verifiedPhotos)
+                        : null,
                   ),
                   const SizedBox(height: 8),
                   if (credits.isSubscribed)
-                    _VerifiedPhotosGrid(persistedAsync: persistedAsync)
+                    VerifiedPhotosGrid(persistedAsync: persistedAsync, limit: 5)
                   else
                     Container(
                       padding: const EdgeInsets.all(16),
@@ -336,15 +363,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         ],
                       ),
                     ),
-                  if (credits.isSubscribed && generationsAsync != null) ...[
+                  if (generationsAsync != null) ...[
                     const SizedBox(height: 16),
-                    Text(
-                      'MIS CREACIONES',
-                      style: VerbenaText.body(
-                              size: 12,
-                              weight: FontWeight.w600,
-                              color: VerbenaColors.textMuted)
-                          .copyWith(letterSpacing: 0.4),
+                    _SectionHeader(
+                      title: 'MIS CREACIONES',
+                      onSeeAll: (generationsAsync.valueOrNull?.length ?? 0) > 5
+                          ? () => context.push(AppRoutes.myCreations)
+                          : null,
                     ),
                     const SizedBox(height: 8),
                     generationsAsync.when(
@@ -358,8 +383,30 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                             size: 13, color: VerbenaColors.textMuted),
                       ),
                       data: (generations) =>
-                          _MyCreationsGrid(generations: generations),
+                          MyCreationsGrid(generations: generations, limit: 5),
                     ),
+                    if ((generationsAsync.valueOrNull ?? [])
+                        .any((g) => g.isFavorite)) ...[
+                      const SizedBox(height: 16),
+                      Builder(builder: (context) {
+                        final favorites = generationsAsync.valueOrNull!
+                            .where((g) => g.isFavorite)
+                            .toList();
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _SectionHeader(
+                              title: 'MIS FAVORITAS',
+                              onSeeAll: favorites.length > 5
+                                  ? () => context.push(AppRoutes.favorites)
+                                  : null,
+                            ),
+                            const SizedBox(height: 8),
+                            MyCreationsGrid(generations: favorites, limit: 5),
+                          ],
+                        );
+                      }),
+                    ],
                   ],
                   if (credits.isSubscribed) ...[
                     const SizedBox(height: 16),
@@ -538,490 +585,36 @@ class _SettingsRow extends StatelessWidget {
   }
 }
 
-class _VerifiedPhotosGrid extends ConsumerWidget {
-  const _VerifiedPhotosGrid({required this.persistedAsync});
+/// Cabecera de sección con enlace opcional "Ver todas" -- se muestra solo
+/// cuando la sección tiene más de 5 elementos (ver ProfileScreen._buildContent).
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({required this.title, this.onSeeAll});
 
-  final AsyncValue<List<VerifiedPhotoSummary>> persistedAsync;
-
-  void _showDetail(BuildContext context, VerifiedPhotoSummary photo) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: VerbenaColors.background,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) => _VerifiedPhotoDetailSheet(photo: photo),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return persistedAsync.when(
-      loading: () => const Padding(
-        padding: EdgeInsets.symmetric(vertical: 20),
-        child: Center(child: CircularProgressIndicator()),
-      ),
-      error: (err, st) => Text(
-        'No se pudieron cargar tus fotos.',
-        style: VerbenaText.body(size: 13, color: VerbenaColors.textMuted),
-      ),
-      data: (photos) {
-        if (photos.isEmpty) {
-          return Text(
-            'Aún no tienes fotos verificadas guardadas.',
-            style: VerbenaText.body(size: 13, color: VerbenaColors.textMuted),
-          );
-        }
-        return GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 4,
-            mainAxisSpacing: 8,
-            crossAxisSpacing: 8,
-            childAspectRatio: 1,
-          ),
-          itemCount: photos.length,
-          itemBuilder: (context, i) {
-            final photo = photos[i];
-            return GestureDetector(
-              onTap: () => _showDetail(context, photo),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: Consumer(
-                  builder: (context, ref, _) {
-                    final urlAsync =
-                        ref.watch(verifiedPhotoUrlProvider(photo.storagePath));
-                    return urlAsync.when(
-                      loading: () => Container(color: VerbenaColors.card),
-                      error: (err, st) => Container(color: VerbenaColors.card),
-                      data: (url) =>
-                          CachedNetworkImage(imageUrl: url, fit: BoxFit.cover),
-                    );
-                  },
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-}
-
-class _MyCreationsGrid extends ConsumerWidget {
-  const _MyCreationsGrid({required this.generations});
-
-  final List<GenerationSummary> generations;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    if (generations.isEmpty) {
-      return Text(
-        'Aún no tienes creaciones. ¡Genera tu primera foto!',
-        style: VerbenaText.body(size: 13, color: VerbenaColors.textMuted),
-      );
-    }
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 4,
-        mainAxisSpacing: 8,
-        crossAxisSpacing: 8,
-        childAspectRatio: 1,
-      ),
-      itemCount: generations.length,
-      itemBuilder: (context, i) {
-        final gen = generations[i];
-        return GestureDetector(
-          onTap: () => _showDetail(context, gen),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: Consumer(
-                  builder: (context, ref, _) {
-                    final urlAsync =
-                        ref.watch(generationResultUrlProvider(gen.storagePath));
-                    return urlAsync.when(
-                      loading: () => Container(color: VerbenaColors.card),
-                      error: (_, __) => Container(color: VerbenaColors.card),
-                      data: (url) =>
-                          CachedNetworkImage(imageUrl: url, fit: BoxFit.cover),
-                    );
-                  },
-                ),
-              ),
-              if (gen.isFavorite)
-                Positioned(
-                  top: 4,
-                  right: 4,
-                  child: Container(
-                    padding: const EdgeInsets.all(3),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.45),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.star, size: 12, color: Colors.amber),
-                  ),
-                ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  void _showDetail(BuildContext context, GenerationSummary gen) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: VerbenaColors.background,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) => _CreationDetailSheet(generation: gen),
-    );
-  }
-}
-
-class _CreationDetailSheet extends ConsumerStatefulWidget {
-  const _CreationDetailSheet({required this.generation});
-
-  final GenerationSummary generation;
-
-  @override
-  ConsumerState<_CreationDetailSheet> createState() => _CreationDetailSheetState();
-}
-
-class _CreationDetailSheetState extends ConsumerState<_CreationDetailSheet> {
-  late bool _isFavorite;
-  bool _busy = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _isFavorite = widget.generation.isFavorite;
-  }
-
-  void _showSnack(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
-  }
-
-  Future<void> _toggleFavorite() async {
-    if (_busy) return;
-    final repo = ref.read(generationsRepositoryProvider);
-
-    if (!_isFavorite) {
-      setState(() => _busy = true);
-      try {
-        await repo.toggleFavorite(widget.generation.id, true);
-        if (mounted) {
-          setState(() => _isFavorite = true);
-          ref.invalidate(myGenerationsProvider);
-        }
-      } on FavoriteLimitException {
-        _showSnack('Ya tienes 10 favoritas — quita alguna antes de marcar otra');
-      } catch (_) {
-        _showSnack('No hemos podido marcar la favorita. Inténtalo otra vez.');
-      } finally {
-        if (mounted) setState(() => _busy = false);
-      }
-    } else {
-      setState(() => _busy = true);
-      bool willBeDeleted;
-      try {
-        willBeDeleted = await repo.hasThirtyOrMoreNonFavoritesNewerThan(
-          widget.generation.id,
-          widget.generation.createdAt,
-        );
-      } catch (_) {
-        if (mounted) setState(() => _busy = false);
-        _showSnack('No hemos podido verificar el estado. Inténtalo otra vez.');
-        return;
-      }
-      if (!mounted) return;
-      setState(() => _busy = false);
-
-      if (willBeDeleted) {
-        final download = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            backgroundColor: VerbenaColors.card,
-            title: Text('Esta imagen se eliminará', style: VerbenaText.display(size: 17)),
-            content: Text(
-              'Ya no entra en tus 30 creaciones más recientes y será eliminada. '
-              '¿Quieres descargarla antes?',
-              style: VerbenaText.body(size: 13.5, color: VerbenaColors.textMuted),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(false),
-                child: Text('Cancelar',
-                    style: VerbenaText.body(size: 13.5, weight: FontWeight.w600)),
-              ),
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(true),
-                child: Text(
-                  'Descargar',
-                  style: VerbenaText.body(
-                      size: 13.5, weight: FontWeight.w700, color: VerbenaColors.teal),
-                ),
-              ),
-            ],
-          ),
-        );
-        if (download == null || !mounted) return;
-
-        if (download) {
-          setState(() => _busy = true);
-          try {
-            final url = ref
-                .read(generationResultUrlProvider(widget.generation.storagePath))
-                .valueOrNull;
-            if (url != null) {
-              final hasAccess = await Gal.hasAccess() || await Gal.requestAccess();
-              if (hasAccess) {
-                final request = await HttpClient().getUrl(Uri.parse(url));
-                final response = await request.close();
-                final bytes = await consolidateHttpClientResponseBytes(response);
-                await Gal.putImageBytes(
-                  bytes,
-                  name: 'verbenai_${widget.generation.id}',
-                  album: 'VerbenAI',
-                );
-              }
-            }
-            await repo.toggleFavorite(widget.generation.id, false);
-            if (mounted) {
-              ref.invalidate(myGenerationsProvider);
-              Navigator.of(context).pop();
-            }
-          } catch (_) {
-            _showSnack('No se pudo completar la operación. Inténtalo otra vez.');
-          } finally {
-            if (mounted) setState(() => _busy = false);
-          }
-        }
-        // Si download==false el usuario canceló — no se hace nada.
-      } else {
-        setState(() => _busy = true);
-        try {
-          await repo.toggleFavorite(widget.generation.id, false);
-          if (mounted) {
-            setState(() => _isFavorite = false);
-            ref.invalidate(myGenerationsProvider);
-          }
-        } catch (_) {
-          _showSnack('No hemos podido quitar la favorita. Inténtalo otra vez.');
-        } finally {
-          if (mounted) setState(() => _busy = false);
-        }
-      }
-    }
-  }
-
-  Future<void> _deleteGeneration() async {
-    if (_busy) return;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: VerbenaColors.card,
-        title: Text('Eliminar creación', style: VerbenaText.display(size: 17)),
-        content: Text(
-          'Se eliminará esta imagen permanentemente.',
-          style: VerbenaText.body(size: 13.5, color: VerbenaColors.textMuted),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: Text('Cancelar',
-                style: VerbenaText.body(size: 13.5, weight: FontWeight.w600)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: Text(
-              'Eliminar',
-              style: VerbenaText.body(
-                  size: 13.5, weight: FontWeight.w700, color: VerbenaColors.terracotta),
-            ),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-
-    setState(() => _busy = true);
-    try {
-      await ref.read(generationsRepositoryProvider).deleteGeneration(widget.generation.id);
-      if (mounted) {
-        ref.invalidate(myGenerationsProvider);
-        Navigator.of(context).pop();
-      }
-    } catch (_) {
-      _showSnack('No hemos podido eliminar la creación. Inténtalo otra vez.');
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
+  final String title;
+  final VoidCallback? onSeeAll;
 
   @override
   Widget build(BuildContext context) {
-    final urlAsync =
-        ref.watch(generationResultUrlProvider(widget.generation.storagePath));
-
-    return SafeArea(
-      child: AbsorbPointer(
-        absorbing: _busy,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    color: VerbenaColors.textDark.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(14),
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxHeight: MediaQuery.of(context).size.height * 0.45,
-                  ),
-                  child: urlAsync.when(
-                    loading: () => const AspectRatio(
-                      aspectRatio: 1,
-                      child: Center(child: CircularProgressIndicator()),
-                    ),
-                    error: (_, __) => const AspectRatio(
-                      aspectRatio: 1,
-                      child: SizedBox.shrink(),
-                    ),
-                    data: (url) => CachedNetworkImage(
-                      imageUrl: url,
-                      fit: BoxFit.contain,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          widget.generation.modeLabel,
-                          style: VerbenaText.body(size: 14.5, weight: FontWeight.w700),
-                        ),
-                        Text(
-                          widget.generation.formattedDate,
-                          style: VerbenaText.body(size: 13, color: VerbenaColors.textMuted),
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    icon: Icon(
-                      _isFavorite ? Icons.star : Icons.star_border,
-                      color: _isFavorite ? Colors.amber : VerbenaColors.textMuted,
-                    ),
-                    onPressed: _toggleFavorite,
-                    tooltip: _isFavorite ? 'Quitar de favoritas' : 'Añadir a favoritas',
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline, color: VerbenaColors.terracotta),
-                    onPressed: _deleteGeneration,
-                    tooltip: 'Eliminar',
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              urlAsync.when(
-                loading: () => const SizedBox.shrink(),
-                error: (_, __) => const SizedBox.shrink(),
-                data: (url) => GenerationShareActions(
-                  resultUrl: url,
-                  generationId: widget.generation.id,
-                ),
-              ),
-            ],
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          title,
+          style: VerbenaText.body(
+                  size: 12, weight: FontWeight.w600, color: VerbenaColors.textMuted)
+              .copyWith(letterSpacing: 0.4),
+        ),
+        if (onSeeAll != null)
+          GestureDetector(
+            onTap: onSeeAll,
+            child: Text(
+              'VER TODAS',
+              style: VerbenaText.body(
+                      size: 11.5, weight: FontWeight.w700, color: VerbenaColors.teal)
+                  .copyWith(letterSpacing: 0.3),
+            ),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _VerifiedPhotoDetailSheet extends ConsumerWidget {
-  const _VerifiedPhotoDetailSheet({required this.photo});
-
-  final VerifiedPhotoSummary photo;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final urlAsync = ref.watch(verifiedPhotoUrlProvider(photo.storagePath));
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                  color: VerbenaColors.textDark.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(14),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxHeight: MediaQuery.of(context).size.height * 0.55,
-                ),
-                child: urlAsync.when(
-                  loading: () => const AspectRatio(
-                    aspectRatio: 1,
-                    child: Center(child: CircularProgressIndicator()),
-                  ),
-                  error: (_, __) => const AspectRatio(
-                    aspectRatio: 1,
-                    child: SizedBox.shrink(),
-                  ),
-                  data: (url) => CachedNetworkImage(
-                    imageUrl: url,
-                    fit: BoxFit.contain,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              photo.formattedDate,
-              style: VerbenaText.body(size: 13, color: VerbenaColors.textMuted),
-            ),
-          ],
-        ),
-      ),
+      ],
     );
   }
 }

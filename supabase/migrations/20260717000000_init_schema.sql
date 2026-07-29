@@ -32,7 +32,7 @@ insert into public.extra_packs (pack_id, credits, price_display) values
 -- ---------------------------------------------------------------------------
 -- user_credits — balance vivo por usuario. Dos contadores independientes:
 -- tier_credits se resetea (no acumula) en cada renovación; extra_credits nunca
--- caduca. free_credit_used cubre la única generación gratis (solo Catálogo).
+-- caduca. free_credit_used cubre la única generación gratis (cualquier modo).
 -- ---------------------------------------------------------------------------
 create table public.user_credits (
   user_id uuid primary key references auth.users(id) on delete cascade,

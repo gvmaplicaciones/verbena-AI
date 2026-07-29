@@ -22,8 +22,8 @@ begin
     raise exception 'user_credits not found for %', p_user_id;
   end if;
 
-  -- Orden de consumo: gratis (solo Catálogo, solo si nunca suscrito y no
-  -- usado) -> tier -> extra. Ver CLAUDE.md para el razonamiento de negocio.
+  -- Orden de consumo: gratis (válido en cualquier modo, solo si nunca
+  -- suscrito y no usado) -> tier -> extra. Ver CLAUDE.md.
   if p_allow_free and not v_credits.free_credit_used and v_credits.subscription_status <> 'active' then
     v_source := 'free';
     update public.user_credits

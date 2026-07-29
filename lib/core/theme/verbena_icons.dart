@@ -66,20 +66,24 @@ class _CameraPainter extends CustomPainter {
       oldDelegate.color != color || oldDelegate.withViewfinderBump != withViewfinderBump;
 }
 
-class VerbenaFacesIcon extends StatelessWidget {
-  const VerbenaFacesIcon({super.key, this.size = 44, this.color = VerbenaColors.background});
+// Un abanico español -- sustituye al icono anterior de dos caras con un
+// arco de ceño fruncido, que se leía como una cara triste en un fondo
+// terracota (rojo). Este slide presenta la elección de escena/prompt, no
+// tiene nada de triste ni de "plan de pago".
+class VerbenaFanIcon extends StatelessWidget {
+  const VerbenaFanIcon({super.key, this.size = 44, this.color = VerbenaColors.background});
 
   final double size;
   final Color color;
 
   @override
   Widget build(BuildContext context) {
-    return CustomPaint(size: Size(size, size), painter: _FacesPainter(color));
+    return CustomPaint(size: Size(size, size), painter: _FanPainter(color));
   }
 }
 
-class _FacesPainter extends CustomPainter {
-  _FacesPainter(this.color);
+class _FanPainter extends CustomPainter {
+  _FanPainter(this.color);
 
   final Color color;
 
@@ -89,28 +93,43 @@ class _FacesPainter extends CustomPainter {
     canvas.save();
     canvas.scale(scale);
 
-    final fill = Paint()..color = color..style = PaintingStyle.fill;
     final stroke = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round;
+    final fill = Paint()..color = color..style = PaintingStyle.fill;
 
-    canvas.drawCircle(const Offset(8, 9), 3, fill);
-    canvas.drawCircle(const Offset(16, 9), 3, fill);
+    const pivot = Offset(12, 22);
+    const tips = [
+      Offset(2, 11),
+      Offset(6.5, 4.5),
+      Offset(12, 2),
+      Offset(17.5, 4.5),
+      Offset(22, 11),
+    ];
 
-    final arc = Path()
-      ..moveTo(4, 20)
-      ..cubicTo(4, 16, 7, 14, 12, 14)
-      ..cubicTo(17, 14, 20, 16, 20, 20);
-    canvas.drawPath(arc, stroke);
+    for (final tip in tips) {
+      canvas.drawLine(pivot, tip, stroke);
+    }
+
+    final edge = Path()..moveTo(tips.first.dx, tips.first.dy);
+    for (var i = 1; i < tips.length; i++) {
+      final prev = tips[i - 1];
+      final curr = tips[i];
+      final mid = Offset((prev.dx + curr.dx) / 2, (prev.dy + curr.dy) / 2 - 1.5);
+      edge.quadraticBezierTo(mid.dx, mid.dy, curr.dx, curr.dy);
+    }
+    canvas.drawPath(edge, stroke);
+
+    canvas.drawCircle(pivot, 1.6, fill);
 
     canvas.restore();
   }
 
   @override
-  bool shouldRepaint(covariant _FacesPainter oldDelegate) => oldDelegate.color != color;
+  bool shouldRepaint(covariant _FanPainter oldDelegate) => oldDelegate.color != color;
 }
 
 class VerbenaCheckmarkIcon extends StatelessWidget {

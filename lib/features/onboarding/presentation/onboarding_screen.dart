@@ -31,8 +31,8 @@ final _slides = [
   ),
   _Slide(
     iconBg: VerbenaColors.terracotta,
-    icon: const VerbenaFacesIcon(),
-    title: 'Elige el plan',
+    icon: const VerbenaFanIcon(),
+    title: 'Elige la escena',
     subtitle:
         'Un cartel de feria, un torero, o lo que se te ocurra escribiendo. Tú mandas.',
   ),
@@ -55,12 +55,16 @@ class OnboardingScreen extends StatefulWidget {
 class _OnboardingScreenState extends State<OnboardingScreen> {
   int _step = 0;
 
+  Future<void> _finish() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(onboardingCompletedPrefsKey, true);
+    if (!mounted) return;
+    context.go(AppRoutes.home);
+  }
+
   Future<void> _next() async {
     if (_step == _slides.length - 1) {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(onboardingCompletedPrefsKey, true);
-      if (!mounted) return;
-      context.go(AppRoutes.home);
+      await _finish();
       return;
     }
     setState(() => _step++);
@@ -79,6 +83,25 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               padding: const EdgeInsets.fromLTRB(28, 12, 28, 32),
               child: Column(
                 children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      Opacity(
+                        opacity: _step == _slides.length - 1 ? 0 : 1,
+                        child: IgnorePointer(
+                          ignoring: _step == _slides.length - 1,
+                          child: TextButton(
+                            onPressed: _finish,
+                            child: Text(
+                              'Saltar',
+                              style: VerbenaText.body(
+                                  size: 14, color: VerbenaColors.textMuted),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                   Expanded(
                     child: Center(
                       child: Column(

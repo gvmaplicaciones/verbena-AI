@@ -328,66 +328,77 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen>
     );
   }
 
+  // Tramos alineados con el % real de _progressCap (95): 0-30 preparando,
+  // 30-70 generando la escena, 70+ (incluido el tope donde se queda "stuck")
+  // puliendo detalles -- antes el texto era estático y no reflejaba avance.
+  String get _generatingLabel {
+    if (_progressPct < 30) return 'Preparando tu foto';
+    if (_progressPct < 70) return 'Generando la escena';
+    return 'Puliendo los detalles';
+  }
+
   Widget _buildProgressState() {
     final stuck = !_verifying && _progressPct >= _progressCap;
     return Column(
       mainAxisSize: MainAxisSize.min,
-      children: _verifying
-          ? [
-              const SizedBox(
-                width: 68,
-                height: 68,
-                child: CircularProgressIndicator(
-                    strokeWidth: 5, color: VerbenaColors.teal),
-              ),
-              const SizedBox(height: 26),
-              Text('Verificando tu foto', style: VerbenaText.display(size: 22)),
-              const SizedBox(height: 26),
-              Text(
-                'Comprobando que todo esté en orden.',
+      children: [
+        if (_verifying) ...[
+          const SizedBox(
+            width: 68,
+            height: 68,
+            child: CircularProgressIndicator(
+                strokeWidth: 5, color: VerbenaColors.teal),
+          ),
+          const SizedBox(height: 26),
+          Text('Verificando tu foto', style: VerbenaText.display(size: 22)),
+          const SizedBox(height: 12),
+          Text(
+            'Comprobando que todo esté en orden.',
+            textAlign: TextAlign.center,
+            style: VerbenaText.body(size: 14.5, color: VerbenaColors.textMuted),
+          ),
+        ] else ...[
+          Text('$_progressPct%',
+              style: VerbenaText.display(size: 40, color: VerbenaColors.teal)),
+          const SizedBox(height: 26),
+          Text(_generatingLabel, style: VerbenaText.display(size: 22)),
+          const SizedBox(height: 12),
+          Text(
+            'En un par de minutos tienes tu foto lista.',
+            textAlign: TextAlign.center,
+            style: VerbenaText.body(size: 14.5, color: VerbenaColors.textMuted),
+          ),
+          const SizedBox(height: 26),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: _progressPct / 100,
+              minHeight: 12,
+              backgroundColor: VerbenaColors.textDark.withValues(alpha: 0.1),
+              valueColor:
+                  const AlwaysStoppedAnimation(VerbenaColors.terracotta),
+            ),
+          ),
+          if (stuck) ...[
+            const SizedBox(height: 18),
+            FadeTransition(
+              opacity: _pulseController,
+              child: Text(
+                'Sigue trabajando, esto puede tardar un poco más...',
                 textAlign: TextAlign.center,
-                style: VerbenaText.body(
-                    size: 14.5, color: VerbenaColors.textMuted),
+                style: VerbenaText.body(size: 13, color: VerbenaColors.textMuted),
               ),
-            ]
-          : [
-              Text('$_progressPct%',
-                  style:
-                      VerbenaText.display(size: 40, color: VerbenaColors.teal)),
-              const SizedBox(height: 26),
-              Text('Generando tu foto', style: VerbenaText.display(size: 22)),
-              const SizedBox(height: 26),
-              Text(
-                'Puliendo los detalles, esto va que arde.',
-                textAlign: TextAlign.center,
-                style: VerbenaText.body(
-                    size: 14.5, color: VerbenaColors.textMuted),
-              ),
-              const SizedBox(height: 26),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(999),
-                child: LinearProgressIndicator(
-                  value: _progressPct / 100,
-                  minHeight: 12,
-                  backgroundColor:
-                      VerbenaColors.textDark.withValues(alpha: 0.1),
-                  valueColor:
-                      const AlwaysStoppedAnimation(VerbenaColors.terracotta),
-                ),
-              ),
-              if (stuck) ...[
-                const SizedBox(height: 18),
-                FadeTransition(
-                  opacity: _pulseController,
-                  child: Text(
-                    'Sigue trabajando, esto puede tardar un poco más...',
-                    textAlign: TextAlign.center,
-                    style: VerbenaText.body(
-                        size: 13, color: VerbenaColors.textMuted),
-                  ),
-                ),
-              ],
-            ],
+            ),
+          ],
+        ],
+        const SizedBox(height: 22),
+        TextButton(
+          onPressed: () => context.go(AppRoutes.home),
+          child: Text('Volver al inicio',
+              style:
+                  VerbenaText.body(size: 13.5, color: VerbenaColors.textMuted)),
+        ),
+      ],
     );
   }
 }
@@ -448,8 +459,8 @@ class _ErrorState extends StatelessWidget {
           error.reason ?? 'El prompt no ha pasado la verificación.',
         ),
       _ErrorKind.insufficientCredits => (
-          'Te has quedado sin créditos',
-          'Consigue más créditos para seguir generando fotos.',
+          'Te has quedado sin fotos',
+          'Consigue más fotos para seguir generando.',
         ),
       _ErrorKind.generic => (
           'Algo ha ido mal',

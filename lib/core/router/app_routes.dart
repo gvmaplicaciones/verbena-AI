@@ -11,6 +11,9 @@ abstract final class AppRoutes {
   static const maskPrompt = '/mask-prompt';
   static const garmentSelect = '/garment-select';
   static const wardrobe = '/profile/wardrobe';
+  static const verifiedPhotos = '/profile/verified-photos';
+  static const myCreations = '/profile/creations';
+  static const favorites = '/profile/favorites';
   static const processing = '/processing';
   static const result = '/result';
   static const paywall = '/paywall';

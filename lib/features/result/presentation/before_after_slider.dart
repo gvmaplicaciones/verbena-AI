@@ -86,10 +86,36 @@ class _BeforeAfterSliderState extends State<BeforeAfterSlider> {
                 bottom: 0,
                 child: const Center(child: _DragHandle()),
               ),
+              const Positioned(
+                  top: 12, left: 12, child: _SliderLabel('ANTES')),
+              const Positioned(
+                  top: 12, right: 12, child: _SliderLabel('DESPUÉS')),
             ],
           ),
         );
       },
+    );
+  }
+}
+
+class _SliderLabel extends StatelessWidget {
+  const _SliderLabel(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        text,
+        style: VerbenaText.display(size: 11, color: Colors.white)
+            .copyWith(letterSpacing: 0.5),
+      ),
     );
   }
 }
