@@ -273,24 +273,43 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   ),
                   const SizedBox(height: 16),
                   if (credits.isSubscribed)
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _CreditBox(
-                            value: '${credits.tierUsed}/${credits.tierTotal}',
-                            label: 'fotos del plan',
-                            color: VerbenaColors.teal,
+                    // Único punto de entrada al paywall para un suscriptor
+                    // activo que quiera comprar el pack extra sin tener que
+                    // agotar antes todos sus créditos generando (ver
+                    // PaywallScreen: ya muestra ese botón cuando
+                    // hasActiveAccess es true, solo hacía falta llegar ahí).
+                    InkWell(
+                      borderRadius: BorderRadius.circular(14),
+                      onTap: () => context.push(AppRoutes.paywall,
+                          extra: 'profile_credits'),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: _CreditBox(
+                                    value:
+                                        '${credits.tierUsed}/${credits.tierTotal}',
+                                    label: 'fotos del plan',
+                                    color: VerbenaColors.teal,
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: _CreditBox(
+                                    value: '+${credits.extraCredits}',
+                                    label: 'fotos extra',
+                                    color: VerbenaColors.terracotta,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _CreditBox(
-                            value: '+${credits.extraCredits}',
-                            label: 'fotos extra',
-                            color: VerbenaColors.terracotta,
-                          ),
-                        ),
-                      ],
+                          const SizedBox(width: 6),
+                          const VerbenaChevronRightIcon(),
+                        ],
+                      ),
                     )
                   else if (credits.subscriptionStatus == 'cancelled')
                     Container(
