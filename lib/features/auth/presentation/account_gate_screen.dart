@@ -1,11 +1,17 @@
+import 'dart:async';
+import 'dart:developer' as developer;
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/theme/verbena_theme.dart';
+import '../../../core/utils/navigation.dart';
 import '../../../data/repositories/auth_repository.dart';
 import '../../../data/repositories/credits_repository.dart';
 import '../../../data/repositories/purchases_repository.dart';
@@ -66,7 +72,7 @@ class _AccountGateScreenState extends ConsumerState<AccountGateScreen> {
       return 'La contraseña debe tener al menos 6 caracteres.';
     }
     if (msg.contains('identity is already linked')) {
-      return 'Esa cuenta de Google ya está vinculada a otro usuario.';
+      return 'Esa cuenta ya está vinculada a otro usuario.';
     }
     return 'Algo ha fallado. Inténtalo de nuevo.';
   }
@@ -103,20 +109,77 @@ class _AccountGateScreenState extends ConsumerState<AccountGateScreen> {
         await _reconcileAfterSignIn();
         if (!mounted) return;
         _showSnack('Sesión recuperada.');
-        context.pop(false);
+        context.safePop(false);
       } else {
         await ref.read(authRepositoryProvider).linkGoogle();
         if (!mounted) return;
-        context.pop(true);
+        context.safePop(true);
       }
-    } on GoogleSignInException catch (e) {
+    } on GoogleSignInException catch (e, st) {
+      developer.log('googleSignIn failed: code=${e.code} description=${e.description} details=${e.details}',
+          name: 'AccountGateScreen', error: e, stackTrace: st);
       if (e.code != GoogleSignInExceptionCode.canceled) {
+        unawaited(Sentry.captureException(e,
+            stackTrace: st, hint: Hint.withMap({'stage': 'googleSignIn'})));
         setState(() => _error = 'No hemos podido continuar con Google.');
       }
-    } on AuthException catch (e) {
+    } on AuthException catch (e, st) {
+      developer.log('googleSignIn failed (AuthException): ${e.message} statusCode=${e.statusCode} code=${e.code}',
+          name: 'AccountGateScreen', error: e, stackTrace: st);
+      unawaited(Sentry.captureException(e,
+          stackTrace: st, hint: Hint.withMap({'stage': 'googleSignIn'})));
       setState(() => _error = _friendlyError(e));
-    } catch (_) {
+    } catch (e, st) {
+      developer.log('googleSignIn failed (unexpected ${e.runtimeType}): $e',
+          name: 'AccountGateScreen', error: e, stackTrace: st);
+      unawaited(Sentry.captureException(e,
+          stackTrace: st, hint: Hint.withMap({'stage': 'googleSignIn'})));
       setState(() => _error = 'No hemos podido continuar con Google.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Mismo patrón que [_continueWithGoogle]. Solo se llama desde el botón de
+  /// Apple, que a su vez solo se muestra en iOS (ver build()) -- en Android,
+  /// Apple no exige ofrecer este inicio de sesión.
+  Future<void> _continueWithApple() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      if (_signInMode) {
+        await ref.read(authRepositoryProvider).signInWithApple();
+        await _reconcileAfterSignIn();
+        if (!mounted) return;
+        _showSnack('Sesión recuperada.');
+        context.safePop(false);
+      } else {
+        await ref.read(authRepositoryProvider).linkApple();
+        if (!mounted) return;
+        context.safePop(true);
+      }
+    } on SignInWithAppleAuthorizationException catch (e, st) {
+      developer.log('appleSignIn failed: code=${e.code} message=${e.message}',
+          name: 'AccountGateScreen', error: e, stackTrace: st);
+      if (e.code != AuthorizationErrorCode.canceled) {
+        unawaited(Sentry.captureException(e,
+            stackTrace: st, hint: Hint.withMap({'stage': 'appleSignIn'})));
+        setState(() => _error = 'No hemos podido continuar con Apple.');
+      }
+    } on AuthException catch (e, st) {
+      developer.log('appleSignIn failed (AuthException): ${e.message} statusCode=${e.statusCode} code=${e.code}',
+          name: 'AccountGateScreen', error: e, stackTrace: st);
+      unawaited(Sentry.captureException(e,
+          stackTrace: st, hint: Hint.withMap({'stage': 'appleSignIn'})));
+      setState(() => _error = _friendlyError(e));
+    } catch (e, st) {
+      developer.log('appleSignIn failed (unexpected ${e.runtimeType}): $e',
+          name: 'AccountGateScreen', error: e, stackTrace: st);
+      unawaited(Sentry.captureException(e,
+          stackTrace: st, hint: Hint.withMap({'stage': 'appleSignIn'})));
+      setState(() => _error = 'No hemos podido continuar con Apple.');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -152,7 +215,7 @@ class _AccountGateScreenState extends ConsumerState<AccountGateScreen> {
     try {
       await ref.read(authRepositoryProvider).linkEmailPassword(email: email, password: password);
       if (!mounted) return;
-      context.pop(true);
+      context.safePop(true);
     } on AuthException catch (e) {
       setState(() => _error = _friendlyError(e));
     } catch (_) {
@@ -160,6 +223,26 @@ class _AccountGateScreenState extends ConsumerState<AccountGateScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// Pide el email (reutilizando el que ya haya en el campo, si lo hay) y
+  /// dispara resetPasswordForEmail. Mensaje de confirmación siempre igual,
+  /// exista o no esa cuenta -- no hay que filtrar esa información.
+  Future<void> _forgotPassword() async {
+    final controller = TextEditingController(text: _emailController.text.trim());
+    final email = await showDialog<String>(
+      context: context,
+      builder: (context) => _ForgotPasswordDialog(controller: controller),
+    );
+    controller.dispose();
+    if (email == null || !mounted) return;
+    try {
+      await ref.read(authRepositoryProvider).resetPasswordForEmail(email);
+    } catch (_) {
+      // Mismo mensaje pase lo que pase, ver comentario de arriba.
+    }
+    if (!mounted) return;
+    _showSnack('Te hemos enviado un email para restablecer tu contraseña.');
   }
 
   Future<void> _submitSignIn() async {
@@ -180,7 +263,7 @@ class _AccountGateScreenState extends ConsumerState<AccountGateScreen> {
       await _reconcileAfterSignIn();
       if (!mounted) return;
       _showSnack('Sesión recuperada.');
-      context.pop(false);
+      context.safePop(false);
     } on AuthException catch (e) {
       setState(() => _error = _friendlyError(e));
     } catch (_) {
@@ -246,6 +329,15 @@ class _AccountGateScreenState extends ConsumerState<AccountGateScreen> {
                     onSubmitted: (_) => _submitCreate(),
                   ),
                 ],
+                if (_signInMode)
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: _busy ? null : _forgotPassword,
+                      child: Text('¿Has olvidado tu contraseña?',
+                          style: VerbenaText.body(size: 12.5, weight: FontWeight.w600, color: VerbenaColors.teal)),
+                    ),
+                  ),
                 if (_error != null) ...[
                   const SizedBox(height: 12),
                   Text(_error!, style: VerbenaText.body(size: 13, color: VerbenaColors.terracotta)),
@@ -300,6 +392,15 @@ class _AccountGateScreenState extends ConsumerState<AccountGateScreen> {
                     ],
                   ),
                 ),
+                if (Platform.isIOS) ...[
+                  const SizedBox(height: 12),
+                  SignInWithAppleButton(
+                    onPressed: _busy ? null : _continueWithApple,
+                    text: 'Continuar con Apple',
+                    height: 48,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ],
                 const SizedBox(height: 16),
                 Center(
                   child: TextButton(
@@ -317,7 +418,7 @@ class _AccountGateScreenState extends ConsumerState<AccountGateScreen> {
                 ),
                 Center(
                   child: TextButton(
-                    onPressed: _busy ? null : () => context.pop(false),
+                    onPressed: _busy ? null : () => context.safePop(false),
                     child: Text('Ahora no', style: VerbenaText.body(size: 13, color: VerbenaColors.textMuted)),
                   ),
                 ),
@@ -326,6 +427,72 @@ class _AccountGateScreenState extends ConsumerState<AccountGateScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Diálogo mínimo para pedir el email antes de resetPasswordForEmail --
+/// prerellenado con lo que el usuario ya hubiera escrito en la pantalla.
+class _ForgotPasswordDialog extends StatefulWidget {
+  const _ForgotPasswordDialog({required this.controller});
+
+  final TextEditingController controller;
+
+  @override
+  State<_ForgotPasswordDialog> createState() => _ForgotPasswordDialogState();
+}
+
+class _ForgotPasswordDialogState extends State<_ForgotPasswordDialog> {
+  String? _error;
+
+  void _submit() {
+    final email = widget.controller.text.trim();
+    if (email.isEmpty || !email.contains('@')) {
+      setState(() => _error = 'Escribe un email válido.');
+      return;
+    }
+    Navigator.of(context).pop(email);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: VerbenaColors.card,
+      title: Text('Recuperar contraseña', style: VerbenaText.display(size: 17)),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Te mandamos un enlace para elegir una contraseña nueva.',
+            style: VerbenaText.body(size: 13, color: VerbenaColors.textMuted),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: widget.controller,
+            keyboardType: TextInputType.emailAddress,
+            autocorrect: false,
+            autofocus: true,
+            decoration: const InputDecoration(labelText: 'Email'),
+            onSubmitted: (_) => _submit(),
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 8),
+            Text(_error!, style: VerbenaText.body(size: 12.5, color: VerbenaColors.terracotta)),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text('Cancelar', style: VerbenaText.body(size: 13.5, weight: FontWeight.w600)),
+        ),
+        TextButton(
+          onPressed: _submit,
+          child: Text('Enviar',
+              style: VerbenaText.body(size: 13.5, weight: FontWeight.w700, color: VerbenaColors.teal)),
+        ),
+      ],
     );
   }
 }

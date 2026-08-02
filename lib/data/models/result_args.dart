@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'generation_outcome.dart';
 import 'generation_source.dart';
 
@@ -10,6 +12,7 @@ class ResultArgs {
     required this.resultUrl,
     required this.generationId,
     this.photoSessionId,
+    this.beforeBytes,
     this.creditSource,
   });
 
@@ -19,5 +22,10 @@ class ResultArgs {
   // Null para modos que omiten verify-photo (RemoveBackground, EnhanceQuality
   // con foto nueva) -- en ese caso "Otra vez" vuelve a selección de foto.
   final String? photoSessionId;
+  // Foto original en memoria, solo cuando `photoSessionId` es null porque el
+  // modo se saltó verify-photo (RemoveBackground, EnhanceQuality con foto
+  // nueva) -- nunca se sube a Storage, así que es la única forma de mostrar
+  // el slider antes/después en ResultScreen para ese caso.
+  final Uint8List? beforeBytes;
   final GenerationCreditSource? creditSource;
 }

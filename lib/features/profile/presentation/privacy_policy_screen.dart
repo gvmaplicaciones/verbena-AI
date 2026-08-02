@@ -1,10 +1,10 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/theme/verbena_icons.dart';
 import '../../../core/theme/verbena_theme.dart';
+import '../../../core/utils/navigation.dart';
 
 class PrivacyPolicyScreen extends StatefulWidget {
   const PrivacyPolicyScreen({super.key});
@@ -58,7 +58,7 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
               child: Row(
                 children: [
-                  VerbenaRoundIconButton(icon: const VerbenaBackChevronIcon(), onTap: () => context.pop()),
+                  VerbenaRoundIconButton(icon: const VerbenaBackChevronIcon(), onTap: () => context.safePop()),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(

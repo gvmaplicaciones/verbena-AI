@@ -7,6 +7,8 @@ import '../../../core/constants/credits.dart';
 import '../../../core/router/app_routes.dart';
 import '../../../core/theme/verbena_icons.dart';
 import '../../../core/theme/verbena_theme.dart';
+import '../../../core/utils/date_format.dart';
+import '../../../core/utils/navigation.dart';
 import '../../../core/widgets/confetti_background.dart';
 import '../../../data/models/user_credits.dart';
 import '../../../data/repositories/account_repository.dart';
@@ -47,13 +49,18 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           ? 'Plan Semanal activo'
           : 'Plan Mensual activo';
     }
+    if (credits.subscriptionStatus == 'cancelled') {
+      return credits.expiresAt != null
+          ? 'Cancelada — activa hasta ${formatShortDate(credits.expiresAt!)}'
+          : 'Cancelada — activa hasta fin de periodo';
+    }
     return credits.freeCreditUsed
         ? 'Sin suscripción — gratis ya usada'
         : 'Sin suscripción — te queda 1 foto gratis';
   }
 
-  Future<void> _openManageSubscription(bool isSubscribed) async {
-    if (!isSubscribed) {
+  Future<void> _openManageSubscription(bool hasActiveAccess) async {
+    if (!hasActiveAccess) {
       context.push(AppRoutes.paywall, extra: 'profile');
       return;
     }
@@ -186,7 +193,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
   Widget _buildContent(UserCredits credits) {
     final persistedAsync = ref.watch(persistedPhotosProvider);
-    final generationsAsync = (credits.isSubscribed || credits.freeCreditUsed)
+    final generationsAsync = (credits.hasActiveAccess || credits.freeCreditUsed)
         ? ref.watch(myGenerationsProvider)
         : null;
 
@@ -202,7 +209,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 children: [
                   VerbenaRoundIconButton(
                       icon: const VerbenaBackChevronIcon(),
-                      onTap: () => context.pop()),
+                      onTap: () => context.safePop()),
                   const SizedBox(width: 12),
                   Text('Tu perfil', style: VerbenaText.display(size: 22)),
                 ],
@@ -244,8 +251,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           ),
                         ),
                         ElevatedButton(
-                          onPressed: () =>
-                              _openManageSubscription(credits.isSubscribed),
+                          onPressed: () => _openManageSubscription(
+                              credits.hasActiveAccess),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: VerbenaColors.background,
                             foregroundColor: VerbenaColors.teal,
@@ -255,7 +262,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                                 horizontal: 12, vertical: 9),
                           ),
                           child: Text(
-                              credits.isSubscribed
+                              credits.hasActiveAccess
                                   ? 'GESTIONAR'
                                   : 'SUSCRIBIRSE',
                               style: VerbenaText.display(
@@ -284,6 +291,36 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           ),
                         ),
                       ],
+                    )
+                  else if (credits.subscriptionStatus == 'cancelled')
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: VerbenaColors.card,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                            color: VerbenaColors.textDark.withValues(alpha: 0.15),
+                            width: 1.5),
+                      ),
+                      child: Column(
+                        children: [
+                          Text(
+                            credits.expiresAt != null
+                                ? 'Cancelada — activa hasta ${formatShortDate(credits.expiresAt!)}'
+                                : 'Cancelada — activa hasta fin de periodo',
+                            textAlign: TextAlign.center,
+                            style: VerbenaText.display(size: 17),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'No se renovará, pero puedes seguir generando hasta esa fecha.',
+                            textAlign: TextAlign.center,
+                            style: VerbenaText.body(
+                                size: 12.5, color: VerbenaColors.textMuted),
+                          ),
+                        ],
+                      ),
                     )
                   else
                     Container(
@@ -324,7 +361,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         : null,
                   ),
                   const SizedBox(height: 8),
-                  if (credits.isSubscribed)
+                  if (credits.hasActiveAccess)
                     VerifiedPhotosGrid(persistedAsync: persistedAsync, limit: 5)
                   else
                     Container(
@@ -408,7 +445,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       }),
                     ],
                   ],
-                  if (credits.isSubscribed) ...[
+                  if (credits.hasActiveAccess) ...[
                     const SizedBox(height: 16),
                     Text(
                       'ARMARIO',

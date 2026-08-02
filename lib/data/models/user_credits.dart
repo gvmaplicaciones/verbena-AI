@@ -8,6 +8,7 @@ class UserCredits {
   final bool freeCreditUsed;
   final String? activePlanId;
   final String subscriptionStatus; // 'none' | 'active' | 'cancelled' | 'expired'
+  final DateTime? expiresAt;
 
   const UserCredits({
     required this.tierCredits,
@@ -16,10 +17,20 @@ class UserCredits {
     required this.freeCreditUsed,
     required this.subscriptionStatus,
     this.activePlanId,
+    this.expiresAt,
   });
 
   int get tierUsed => tierTotal - tierCredits;
   bool get isSubscribed => subscriptionStatus == 'active';
+
+  /// Acceso a fotos/funciones de socio: cierto en 'active' Y en 'cancelled'
+  /// (el auto-renovable está apagado pero el periodo pagado sigue vigente
+  /// hasta expiresAt) -- falso solo en 'expired'/'none'. Úsalo para gatear
+  /// Armario, Mis creaciones y Fotos verificadas, así el acceso coincide con
+  /// la misma ventana en que los créditos siguen siendo usables.
+  bool get hasActiveAccess =>
+      subscriptionStatus == 'active' || subscriptionStatus == 'cancelled';
+
   bool get canUseFreeGeneration => !isSubscribed && !freeCreditUsed;
 
   /// Espeja el orden tier -> extra -> free de deduct_credit() en Supabase
@@ -35,5 +46,8 @@ class UserCredits {
         freeCreditUsed: json['free_credit_used'] as bool,
         activePlanId: json['active_plan_id'] as String?,
         subscriptionStatus: json['subscription_status'] as String,
+        expiresAt: json['expires_at'] == null
+            ? null
+            : DateTime.parse(json['expires_at'] as String),
       );
 }

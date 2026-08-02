@@ -1,16 +1,18 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/constants/credits.dart';
 import '../../../core/router/app_routes.dart';
+import '../../../core/utils/date_format.dart';
 import '../../../core/theme/verbena_icons.dart';
 import '../../../core/theme/verbena_theme.dart';
+import '../../../core/widgets/before_after_crossfade.dart';
 import '../../../core/widgets/confetti_background.dart';
 import '../../../data/models/generation_source.dart';
+import '../../../data/models/user_credits.dart';
 import '../../../data/repositories/credits_repository.dart';
 
 /// El handoff traía "esta semana" fijo en la tarjeta de créditos aunque el
@@ -97,19 +99,57 @@ class _HomeHeaderState extends State<_HomeHeader> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text('VerbenAI', style: VerbenaText.display(size: 24)),
-          GestureDetector(
-            onTap: () => context.push(AppRoutes.profile),
-            onLongPress: _onAvatarLongPress,
-            child: Container(
-              width: 36,
-              height: 36,
-              decoration: const BoxDecoration(
-                  color: VerbenaColors.teal, shape: BoxShape.circle),
-              alignment: Alignment.center,
-              child: const VerbenaPersonIcon(size: 17),
-            ),
+          Row(
+            children: [
+              const _ProBadge(),
+              const SizedBox(width: 10),
+              GestureDetector(
+                onTap: () => context.push(AppRoutes.profile),
+                onLongPress: _onAvatarLongPress,
+                child: Container(
+                  width: 36,
+                  height: 36,
+                  decoration: const BoxDecoration(
+                      color: VerbenaColors.teal, shape: BoxShape.circle),
+                  alignment: Alignment.center,
+                  child: const VerbenaPersonIcon(size: 17),
+                ),
+              ),
+            ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Píldora "PRO" persistente para usuarios sin suscripción activa -- entrada
+/// permanente al paywall desde Home, sin esperar a que intenten generar sin
+/// créditos. Desaparece del todo para suscriptores (ver CreditsRepository).
+class _ProBadge extends ConsumerWidget {
+  const _ProBadge();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final hasActiveAccess =
+        ref.watch(myCreditsProvider).valueOrNull?.hasActiveAccess ?? false;
+    if (hasActiveAccess) return const SizedBox.shrink();
+    return GestureDetector(
+      onTap: () => context.push(AppRoutes.paywall, extra: 'home_badge'),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
+        decoration: BoxDecoration(
+          // Mismo teal que el CTA "EMPEZAR" del paywall (ver
+          // buildVerbenaTheme -- elevatedButtonTheme), para unificar el
+          // color del botón/acción principal de compra en toda la app.
+          color: VerbenaColors.teal,
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Text(
+          'PRO',
+          style: VerbenaText.display(
+              size: 12.5, color: VerbenaColors.background, letterSpacing: 0.6),
+        ),
       ),
     );
   }
@@ -134,51 +174,13 @@ class _CreditsCard extends ConsumerWidget {
                 onTap: () => context.push(AppRoutes.profile),
                 child: Container(
                   width: double.infinity,
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 14),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                   decoration: BoxDecoration(
                     color: VerbenaColors.teal,
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'FOTOS DE TU PLAN',
-                        style: VerbenaText.body(
-                          size: 11,
-                          color:
-                              VerbenaColors.background.withValues(alpha: 0.8),
-                          weight: FontWeight.w500,
-                        ).copyWith(letterSpacing: 0.5),
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.baseline,
-                        textBaseline: TextBaseline.alphabetic,
-                        children: [
-                          Text(
-                            '${credits.tierUsed}/${credits.tierTotal}',
-                            style: VerbenaText.display(
-                                size: 24, color: VerbenaColors.background),
-                          ),
-                          if (_cadenceLabel(credits.activePlanId)
-                              case final label?) ...[
-                            const SizedBox(width: 6),
-                            Text(
-                              label,
-                              style: VerbenaText.body(
-                                size: 13,
-                                color: VerbenaColors.background
-                                    .withValues(alpha: 0.85),
-                                weight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ],
-                  ),
+                  child: _CreditsCardBody(credits: credits),
                 ),
               ),
               if (credits.extraCredits > 0)
@@ -209,6 +211,102 @@ class _CreditsCard extends ConsumerWidget {
         },
       ),
     );
+  }
+}
+
+/// Contenido de la tarjeta de créditos según el estado real de la
+/// suscripción -- nunca un "X/Y" genérico que no distinga 'cancelled' de
+/// 'active' (confunde: sugeriría que se va a renovar cuando no es así).
+class _CreditsCardBody extends StatelessWidget {
+  const _CreditsCardBody({required this.credits});
+
+  final UserCredits credits;
+
+  @override
+  Widget build(BuildContext context) {
+    switch (credits.subscriptionStatus) {
+      case 'active':
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'FOTOS DE TU PLAN',
+              style: VerbenaText.body(
+                size: 11,
+                color: VerbenaColors.background.withValues(alpha: 0.8),
+                weight: FontWeight.w500,
+              ).copyWith(letterSpacing: 0.5),
+            ),
+            const SizedBox(height: 4),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Text(
+                  '${credits.tierUsed}/${credits.tierTotal}',
+                  style: VerbenaText.display(
+                      size: 24, color: VerbenaColors.background),
+                ),
+                if (_cadenceLabel(credits.activePlanId) case final label?) ...[
+                  const SizedBox(width: 6),
+                  Text(
+                    label,
+                    style: VerbenaText.body(
+                      size: 13,
+                      color: VerbenaColors.background.withValues(alpha: 0.85),
+                      weight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        );
+      case 'cancelled':
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'SUSCRIPCIÓN',
+              style: VerbenaText.body(
+                size: 11,
+                color: VerbenaColors.background.withValues(alpha: 0.8),
+                weight: FontWeight.w500,
+              ).copyWith(letterSpacing: 0.5),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              credits.expiresAt != null
+                  ? 'Cancelada — activa hasta ${formatShortDate(credits.expiresAt!)}'
+                  : 'Cancelada — activa hasta fin de periodo',
+              style: VerbenaText.display(
+                  size: 17, color: VerbenaColors.background),
+            ),
+          ],
+        );
+      default: // 'expired' | 'none'
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'MI PLAN',
+              style: VerbenaText.body(
+                size: 11,
+                color: VerbenaColors.background.withValues(alpha: 0.8),
+                weight: FontWeight.w500,
+              ).copyWith(letterSpacing: 0.5),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              credits.canUseFreeGeneration
+                  ? '1 foto gratis disponible'
+                  : 'Foto gratis usada — ver planes',
+              style: VerbenaText.display(
+                  size: 19, color: VerbenaColors.background),
+            ),
+          ],
+        );
+    }
   }
 }
 
@@ -325,8 +423,11 @@ class _ModeCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: VerbenaColors.card,
           borderRadius: BorderRadius.circular(18),
+          // Mismo borde que _PlanCard en el paywall (textDark al 15% de
+          // opacidad, 1.5px, radio 18) -- las tarjetas de plan reales no
+          // llevan sombra, así que no se añade ninguna aquí tampoco.
           border: Border.all(
-              color: VerbenaColors.textDark.withValues(alpha: 0.12),
+              color: VerbenaColors.textDark.withValues(alpha: 0.15),
               width: 1.5),
         ),
         child: Row(
@@ -366,87 +467,30 @@ class _ModeCard extends StatelessWidget {
   }
 }
 
-/// Miniatura con crossfade automático before/after (2s por imagen, ~350ms de
-/// transición) -- sustituye a la imagen estática única. [startDelay] escalona
+/// Miniatura con crossfade automático before/after -- [startDelay] escalona
 /// el primer cambio entre tarjetas para que no crucen las 6 a la vez.
-/// El ciclo se engancha a TickerMode en vez de a la ruta directamente: se
-/// pausa solo mientras Home queda tapada por otra pantalla (p.ej. al entrar
-/// en Perfil) y se reanuda al volver a ser la ruta visible, sin gastar ciclos
-/// de fondo mientras tanto.
-class _ModeThumbnail extends StatefulWidget {
+class _ModeThumbnail extends StatelessWidget {
   const _ModeThumbnail({required this.imageBaseName, required this.startDelay});
 
   final String imageBaseName;
   final Duration startDelay;
 
   @override
-  State<_ModeThumbnail> createState() => _ModeThumbnailState();
-}
-
-class _ModeThumbnailState extends State<_ModeThumbnail> {
-  static const _holdDuration = Duration(seconds: 2);
-  static const _crossFadeDuration = Duration(milliseconds: 350);
-
-  bool _showAfter = false;
-  Timer? _timer;
-  ValueListenable<bool>? _tickerModeNotifier;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final notifier = TickerMode.getNotifier(context);
-    if (!identical(notifier, _tickerModeNotifier)) {
-      _tickerModeNotifier?.removeListener(_onTickerModeChanged);
-      _tickerModeNotifier = notifier..addListener(_onTickerModeChanged);
-      _onTickerModeChanged();
-    }
-  }
-
-  void _onTickerModeChanged() {
-    if (_tickerModeNotifier!.value) {
-      _scheduleNext(widget.startDelay);
-    } else {
-      _timer?.cancel();
-    }
-  }
-
-  void _scheduleNext(Duration delay) {
-    _timer?.cancel();
-    _timer = Timer(delay, () {
-      if (!mounted) return;
-      setState(() => _showAfter = !_showAfter);
-      _scheduleNext(_holdDuration);
-    });
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    _tickerModeNotifier?.removeListener(_onTickerModeChanged);
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
+    // BeforeAfterCrossfade solo aplica width/height a sus Image.asset
+    // internos -- su layoutBuilder los sustituye por un Stack(fit: expand)
+    // que necesita constraints acotadas de un ancestro (aquí, este SizedBox;
+    // en el hero del paywall, el SizedBox+Stack.expand de _PaywallHero). Sin
+    // esto, dentro del Row del _ModeCard (sin Expanded) recibía constraints
+    // infinitas y colapsaba a tamaño cero en release (las aserciones de
+    // debug que lo habrían delatado no existen ahí).
     return SizedBox(
       width: 76,
       height: 76,
-      child: AnimatedCrossFade(
-        firstChild: Image.asset(
-          'assets/modes/${widget.imageBaseName}-before.jpg',
-          fit: BoxFit.cover,
-          width: 76,
-          height: 76,
-        ),
-        secondChild: Image.asset(
-          'assets/modes/${widget.imageBaseName}-after.jpg',
-          fit: BoxFit.cover,
-          width: 76,
-          height: 76,
-        ),
-        crossFadeState:
-            _showAfter ? CrossFadeState.showSecond : CrossFadeState.showFirst,
-        duration: _crossFadeDuration,
+      child: BeforeAfterCrossfade(
+        beforeAsset: 'assets/modes/$imageBaseName-before.jpg',
+        afterAsset: 'assets/modes/$imageBaseName-after.jpg',
+        startDelay: startDelay,
       ),
     );
   }

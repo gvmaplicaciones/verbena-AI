@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/verbena_theme.dart';
+import '../../../core/utils/navigation.dart';
 import '../../../data/models/template.dart';
 import '../../../data/repositories/admin_repository.dart';
 
@@ -173,7 +173,7 @@ class _AdminCategoriesScreenState extends ConsumerState<AdminCategoriesScreen> {
                 padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
                 child: Row(
                   children: [
-                    IconButton(onPressed: () => context.pop(), icon: const Icon(Icons.arrow_back)),
+                    IconButton(onPressed: () => context.safePop(), icon: const Icon(Icons.arrow_back)),
                     Expanded(child: Text('Categorías (admin)', style: VerbenaText.display(size: 19))),
                     IconButton(onPressed: _openAddDialog, icon: const Icon(Icons.add)),
                   ],

@@ -2,10 +2,10 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart' show Uint8List;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../core/theme/verbena_theme.dart';
+import '../../../core/utils/navigation.dart';
 import '../../../data/repositories/admin_repository.dart';
 import 'admin_categories_screen.dart';
 
@@ -164,7 +164,7 @@ class _AdminNewTemplateScreenState extends ConsumerState<AdminNewTemplateScreen>
     setState(() => _busy = true);
     try {
       await ref.read(adminRepositoryProvider).setActive(preview.templateId, true);
-      if (mounted) context.pop();
+      if (mounted) context.safePop();
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -197,7 +197,7 @@ class _AdminNewTemplateScreenState extends ConsumerState<AdminNewTemplateScreen>
               children: [
                 Row(
                   children: [
-                    IconButton(onPressed: () => context.pop(), icon: const Icon(Icons.arrow_back)),
+                    IconButton(onPressed: () => context.safePop(), icon: const Icon(Icons.arrow_back)),
                     const SizedBox(width: 4),
                     Text('Nueva plantilla', style: VerbenaText.display(size: 19)),
                   ],

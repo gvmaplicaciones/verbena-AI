@@ -28,6 +28,9 @@ hs_err_pid*.log
 .env
 dart_define.json
 
+# Secrets — firma de release Android, nunca committear
+android/key.properties
+
 # Supabase local dev
 supabase/.branches/
 supabase/.temp/

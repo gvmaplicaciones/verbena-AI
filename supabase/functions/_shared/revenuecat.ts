@@ -61,6 +61,8 @@ export async function grantActiveSubscription(
       tier_total: plan.tier_credits,
       active_plan_id: plan.plan_id,
       subscription_status: "active",
+      // Auto-renovable de nuevo encendido -- ninguna fecha de fin que anunciar.
+      expires_at: null,
       updated_at: new Date().toISOString(),
     })
     .eq("user_id", userId);
@@ -81,18 +83,29 @@ export async function reactivateSubscription(
 ): Promise<void> {
   await admin
     .from("user_credits")
-    .update({ subscription_status: "active", updated_at: new Date().toISOString() })
+    .update({ subscription_status: "active", expires_at: null, updated_at: new Date().toISOString() })
     .eq("user_id", userId);
 }
 
-/** CANCELLATION: se apaga el auto-renovable pero el acceso sigue hasta EXPIRATION -- no se toca nada más. */
+/**
+ * CANCELLATION: se apaga el auto-renovable pero el acceso sigue hasta
+ * EXPIRATION -- no se toca nada más. `expirationAtMs` (campo `expiration_at_ms`
+ * del payload real de RevenueCat) es la fecha en la que ese acceso termina de
+ * verdad; se guarda para poder mostrarla en cliente ("Cancelada -- activa
+ * hasta [fecha]").
+ */
 export async function cancelSubscription(
   admin: ReturnType<typeof supabaseAdmin>,
   userId: string,
+  expirationAtMs?: number | null,
 ): Promise<void> {
   await admin
     .from("user_credits")
-    .update({ subscription_status: "cancelled", updated_at: new Date().toISOString() })
+    .update({
+      subscription_status: "cancelled",
+      expires_at: expirationAtMs ? new Date(expirationAtMs).toISOString() : null,
+      updated_at: new Date().toISOString(),
+    })
     .eq("user_id", userId);
 }
 
@@ -123,6 +136,7 @@ export async function expireSubscription(
       tier_credits: 0,
       active_plan_id: null,
       subscription_status: "expired",
+      expires_at: null,
       updated_at: new Date().toISOString(),
     })
     .eq("user_id", userId);
@@ -276,21 +290,51 @@ export async function reconcileSubscriberState(
   }
   const body = await res.json();
   const entitlements = body.subscriber?.entitlements ?? {};
+  const subscriptions = body.subscriber?.subscriptions ?? {};
   const now = Date.now();
 
   // Cualquier entitlement con expiración nula (vitalicio) o futura cuenta
   // como activo -- el proyecto solo espera un entitlement pero esto no
   // asume su nombre concreto.
+  //
+  // Bug detectado el 2026-07-31: la API real de RevenueCat
+  // (GET /v1/subscribers/{id}) NUNCA devuelve `expires_date_ms` en
+  // entitlements, solo `expires_date` (ISO 8601) -- leer el campo
+  // inexistente hacía que expiresMs cayera siempre en null y todo
+  // entitlement, caducado o no, se tratara como vitalicio. Resucitó por
+  // error la suscripción de un usuario real cuyo periodo había expirado
+  // el día anterior, con cada llamada a reconcile() (cada sign-in/resume).
   let active: { product_identifier: string; expires_date_ms: number | null } | null = null;
   for (const key of Object.keys(entitlements)) {
-    const ent = entitlements[key];
-    const expiresMs = (ent.expires_date_ms ?? null) as number | null;
-    if (expiresMs === null || expiresMs > now) {
+    const ent = entitlements[key] as { expires_date?: string | null; product_identifier: string };
+    const expiresMs = ent.expires_date ? Date.parse(ent.expires_date) : null;
+    if (expiresMs === null || Number.isNaN(expiresMs) || expiresMs > now) {
       const currentBest = active?.expires_date_ms ?? Infinity;
       const candidateBest = expiresMs ?? Infinity;
       if (!active || candidateBest > currentBest) {
         active = { product_identifier: ent.product_identifier, expires_date_ms: expiresMs };
       }
+    }
+  }
+
+  // Red de seguridad detectada el 2026-07-30: un producto puede tener una
+  // compra real y activa en `subscriptions` sin estar adjunto a ningún
+  // entitlement en el dashboard de RevenueCat (Product Catalog >
+  // Entitlements), lo que deja `entitlements` vacío y antes hacía que esta
+  // función concluyera en silencio "sin suscripción activa" pese al cobro
+  // real. No se concede acceso solo con esta señal (abriría otro vector de
+  // abuso si alguien manipulase subscriptions sin más) -- solo se deja un
+  // aviso explícito para que la próxima vez sea detectable, no silencioso.
+  if (!active && Object.keys(entitlements).length === 0) {
+    const activeSubKey = Object.keys(subscriptions).find((key) => {
+      const sub = subscriptions[key] as { expires_date?: string | null };
+      const expiresMs = sub.expires_date ? Date.parse(sub.expires_date) : null;
+      return expiresMs === null || Number.isNaN(expiresMs) || expiresMs > now;
+    });
+    if (activeSubKey) {
+      console.error(
+        `revenuecat: MISCONFIGURACIÓN -- user=${userId} tiene una compra activa ('${activeSubKey}') en subscriptions pero entitlements está vacío. Revisar en el dashboard de RevenueCat (Product Catalog > Entitlements) que el producto esté adjunto a un entitlement.`,
+      );
     }
   }
 

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/verbena_icons.dart';
 import '../../../core/theme/verbena_theme.dart';
+import '../../../core/utils/navigation.dart';
 import '../../../core/widgets/confetti_background.dart';
 import '../../../data/repositories/generations_repository.dart';
 import 'gallery_grids.dart';
@@ -38,7 +38,7 @@ class FavoritesScreen extends ConsumerWidget {
                       children: [
                         VerbenaRoundIconButton(
                           icon: const VerbenaBackChevronIcon(),
-                          onTap: () => context.pop(),
+                          onTap: () => context.safePop(),
                         ),
                         const SizedBox(width: 12),
                         Text('Mis favoritas', style: VerbenaText.display(size: 22)),

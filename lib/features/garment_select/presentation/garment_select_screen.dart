@@ -12,6 +12,7 @@ import '../../../core/router/app_routes.dart';
 import '../../../core/theme/verbena_icons.dart';
 import '../../../core/theme/verbena_theme.dart';
 import '../../../core/utils/image_orientation.dart';
+import '../../../core/utils/navigation.dart';
 import '../../../core/widgets/confetti_background.dart';
 import '../../../data/models/garment.dart';
 import '../../../data/models/garment_select_args.dart';
@@ -142,8 +143,9 @@ class _GarmentSelectScreenState extends ConsumerState<GarmentSelectScreen> {
   @override
   Widget build(BuildContext context) {
     final creditsAsync = ref.watch(myCreditsProvider);
-    final isSubscribed = creditsAsync.valueOrNull?.isSubscribed ?? false;
-    final garmentsAsync = isSubscribed ? ref.watch(garmentsProvider) : null;
+    final hasActiveAccess =
+        creditsAsync.valueOrNull?.hasActiveAccess ?? false;
+    final garmentsAsync = hasActiveAccess ? ref.watch(garmentsProvider) : null;
     final wardrobeGarments = (garmentsAsync?.valueOrNull ?? const <Garment>[])
         .where((g) => g.storagePath != null)
         .toList();
@@ -169,7 +171,7 @@ class _GarmentSelectScreenState extends ConsumerState<GarmentSelectScreen> {
                       children: [
                         VerbenaRoundIconButton(
                           icon: const VerbenaBackChevronIcon(),
-                          onTap: () => context.pop(),
+                          onTap: () => context.safePop(),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
@@ -183,7 +185,7 @@ class _GarmentSelectScreenState extends ConsumerState<GarmentSelectScreen> {
                     padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
                     child: Text(
                       'Hasta ${GarmentSelectScreen.maxGarments} prendas -- sube fotos nuevas'
-                      '${isSubscribed ? ' o elige del Armario' : ''}',
+                      '${hasActiveAccess ? ' o elige del Armario' : ''}',
                       style: VerbenaText.body(size: 14, color: VerbenaColors.textMuted),
                     ),
                   ),
@@ -208,7 +210,7 @@ class _GarmentSelectScreenState extends ConsumerState<GarmentSelectScreen> {
                           subtitle: 'Busca la prenda que quieras',
                           onTap: () => _pickFrom(ImageSource.gallery),
                         ),
-                        if (isSubscribed) ...[
+                        if (hasActiveAccess) ...[
                           const SizedBox(height: 16),
                           _WardrobeSection(
                             garments: wardrobeGarments,

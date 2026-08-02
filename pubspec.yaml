@@ -1,7 +1,7 @@
 name: verbenai
 description: "VerbenAI — genera fotos con IA en escenas predefinidas o por texto libre."
 publish_to: "none"
-version: 0.1.0+1
+version: 0.1.0+13
 
 environment:
   sdk: ^3.6.0
@@ -53,11 +53,22 @@ dependencies:
   # initialize() async, en vez del viejo constructor/signIn() síncrono.
   google_sign_in: ^7.2.0
 
+  # Sign in with Apple (mismo flujo que Google, ver auth_repository.dart).
+  # Solo funcional en iOS -- requiere la capability "Sign in with Apple" en
+  # App Store Connect (pendiente de activar). No se muestra el botón en
+  # Android (Apple no lo exige ahí).
+  sign_in_with_apple: ^7.0.1
+
   # Persistir el refresh token de la sesión anónima mientras se opera en el
   # menú de admin oculto (ver data/repositories/admin_repository.dart), para
   # poder restaurarla aunque la app se cierre a medias.
   shared_preferences: ^2.5.5
   image: ^4.8.0
+
+  # Petición de reseña nativa (Google Play In-App Review / SKStoreReviewController
+  # en iOS), ver ResultScreen._trackSuccessfulGeneration. Sin UI propia: solo se
+  # solicita, la plataforma decide si la muestra (políticas de Play/App Store).
+  in_app_review: ^2.0.12
 
 dev_dependencies:
   flutter_test:

@@ -12,7 +12,7 @@
 // Se compara contra REVENUECAT_WEBHOOK_AUTHORIZATION.
 //
 // Request:  POST, Authorization: <valor exacto configurado en RevenueCat>
-//           body JSON = { event: { id, type, app_user_id, product_id? } }
+//           body JSON = { event: { id, type, app_user_id, product_id?, expiration_at_ms? } }
 // Response: { status: 'processed' | 'already_processed' } o { error }
 
 import { corsHeaders } from "../_shared/cors.ts";
@@ -32,6 +32,7 @@ interface RevenueCatEvent {
   type: string;
   app_user_id: string;
   product_id?: string;
+  expiration_at_ms?: number | null;
 }
 
 Deno.serve(async (req) => {
@@ -97,7 +98,7 @@ Deno.serve(async (req) => {
         await reactivateSubscription(admin, userId);
         break;
       case "CANCELLATION":
-        await cancelSubscription(admin, userId);
+        await cancelSubscription(admin, userId, event.expiration_at_ms);
         break;
       case "EXPIRATION":
         await expireSubscription(admin, userId);

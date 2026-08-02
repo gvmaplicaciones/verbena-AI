@@ -8,9 +8,37 @@ allprojects {
     // a la última versión disponible en el caché local de Gradle. Aplica a
     // todos los subproyectos (incluido posthog_flutter) para cubrir tanto
     // debugCompileClasspath como debugRuntimeClasspath.
+    // sign_in_with_apple fija androidx.browser:browser:1.5.0, versión que no
+    // está en caché y falla con el mismo PKIX/TLS -- se fija a una que sí lo
+    // está.
     configurations.all {
         resolutionStrategy {
-            force("com.posthog:posthog-android:3.56.2")
+            force(
+                "com.posthog:posthog-android:3.56.2",
+                "androidx.browser:browser:1.9.0",
+            )
+        }
+    }
+    // sign_in_with_apple fija su propio buildscript con Kotlin 1.7.10 (viejo,
+    // anterior al kotlin-android del proyecto raíz: 2.2.20) -- Gradle intenta
+    // descargar los jars del toolchain de esa versión concreta
+    // (kotlin-daemon-embeddable, kotlin-build-common, etc. 1.7.10) y falla con
+    // el mismo PKIX/TLS que posthog arriba. Se fuerza también el classpath de
+    // buildscript de cada subproyecto a la versión ya usada/cacheada por el
+    // resto del proyecto para evitar esa descarga. Al forzar esto, Gradle
+    // re-resuelve el classpath de TODOS los subproyectos (incluidos los que
+    // no se tocan), lo que expone el mismo problema con
+    // error_prone_annotations:2.27.0 (transitiva de AGP 8.7.3, fijada por
+    // in_app_review) -- no está en caché esa versión exacta, así que se fija
+    // también a una que sí lo está.
+    buildscript {
+        configurations.all {
+            resolutionStrategy {
+                force(
+                    "org.jetbrains.kotlin:kotlin-gradle-plugin:2.2.20",
+                    "com.google.errorprone:error_prone_annotations:2.30.0",
+                )
+            }
         }
     }
 }

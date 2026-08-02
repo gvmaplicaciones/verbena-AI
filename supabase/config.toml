@@ -28,3 +28,15 @@ file_size_limit = "25MiB"
 
 [edge_runtime]
 enabled = true
+
+# RevenueCat manda su propio header Authorization (no un JWT de Supabase, ver
+# revenuecat-webhook/index.ts) -- sin esto, el gateway de Supabase rechaza la
+# petición con 401 antes de que la función llegue a comprobarlo ella misma.
+[functions.revenuecat-webhook]
+verify_jwt = false
+
+# El cron job de pg_cron/pg_net manda "Authorization: Bearer <CRON_SECRET>"
+# (no un JWT de Supabase, ver cleanup-expired-photos/index.ts) -- mismo caso
+# que revenuecat-webhook.
+[functions.cleanup-expired-photos]
+verify_jwt = false

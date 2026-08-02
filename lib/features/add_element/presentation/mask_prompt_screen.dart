@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/router/app_routes.dart';
 import '../../../core/theme/verbena_icons.dart';
 import '../../../core/theme/verbena_theme.dart';
+import '../../../core/utils/navigation.dart';
 import '../../../core/widgets/confetti_background.dart';
 import '../../../data/models/generation_source.dart';
 import '../../../data/models/mask_prompt_args.dart';
@@ -133,7 +134,7 @@ class _MaskPromptScreenState extends State<MaskPromptScreen> {
                     children: [
                       VerbenaRoundIconButton(
                         icon: const VerbenaBackChevronIcon(),
-                        onTap: () => context.pop(),
+                        onTap: () => context.safePop(),
                       ),
                       const SizedBox(width: 12),
                       Expanded(

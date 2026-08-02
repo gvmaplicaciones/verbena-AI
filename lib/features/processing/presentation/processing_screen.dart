@@ -270,6 +270,10 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen>
           resultUrl: outcome.resultUrl!,
           generationId: outcome.generationId,
           photoSessionId: photoSessionId,
+          beforeBytes:
+              skipsVerification && photoSessionId == null
+                  ? widget.args.photoBytes
+                  : null,
           creditSource: outcome.creditSource,
         ),
       );

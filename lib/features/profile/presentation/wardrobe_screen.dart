@@ -5,12 +5,12 @@ import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../core/theme/verbena_icons.dart';
 import '../../../core/theme/verbena_theme.dart';
 import '../../../core/utils/image_orientation.dart';
+import '../../../core/utils/navigation.dart';
 import '../../../core/widgets/confetti_background.dart';
 import '../../../data/models/garment.dart';
 import '../../../data/repositories/garment_repository.dart';
@@ -169,7 +169,7 @@ class _WardrobeScreenState extends ConsumerState<WardrobeScreen> {
                       children: [
                         VerbenaRoundIconButton(
                           icon: const VerbenaBackChevronIcon(),
-                          onTap: () => context.pop(),
+                          onTap: () => context.safePop(),
                         ),
                         const SizedBox(width: 12),
                         Expanded(

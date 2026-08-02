@@ -12,6 +12,7 @@ import '../../../core/router/app_routes.dart';
 import '../../../core/theme/verbena_icons.dart';
 import '../../../core/theme/verbena_theme.dart';
 import '../../../core/utils/image_orientation.dart';
+import '../../../core/utils/navigation.dart';
 import '../../../core/widgets/confetti_background.dart';
 import '../../../data/models/garment_select_args.dart';
 import '../../../data/models/generation_source.dart';
@@ -368,7 +369,7 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
   Widget build(BuildContext context) {
     final creditsAsync = ref.watch(myCreditsProvider);
     final credits = creditsAsync.valueOrNull;
-    final isSubscribed = credits?.isSubscribed ?? false;
+    final hasActiveAccess = credits?.hasActiveAccess ?? false;
     // Cualquier modo puede tirar del único crédito gratis por usuario (regla
     // de negocio que ya vive en deduct_credit()) -- por eso allowFree es
     // siempre true aquí, no depende del source.
@@ -378,7 +379,7 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
     final noCredits =
         credits != null && !credits.hasCreditsFor(allowFree: allowFree);
     final persistedAsync = ref.watch(persistedPhotosProvider);
-    final recentPhotos = isSubscribed
+    final recentPhotos = hasActiveAccess
         ? persistedAsync.valueOrNull ?? const []
         : const <VerifiedPhotoSummary>[];
 
@@ -408,7 +409,7 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
                           children: [
                             VerbenaRoundIconButton(
                               icon: const VerbenaBackChevronIcon(),
-                              onTap: () => context.pop(),
+                              onTap: () => context.safePop(),
                             ),
                             const SizedBox(width: 12),
                             Expanded(

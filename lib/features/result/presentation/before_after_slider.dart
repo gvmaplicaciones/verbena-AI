@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
@@ -13,15 +15,23 @@ import '../../../core/theme/verbena_theme.dart';
 /// "después" (no de la "antes") -- solo tiene sentido cuando esa imagen
 /// puede tener transparencia real (modo "Eliminar fondo"), para poder
 /// distinguir "sin fondo" de "fondo blanco".
+///
+/// La imagen "antes" admite [beforeUrl] (foto ya subida, con sesión) o
+/// [beforeBytes] (modos que omiten verify-photo -- RemoveBackground,
+/// EnhanceQuality -- donde la foto original no se sube a Storage y solo
+/// existe en memoria). Se exige exactamente una de las dos.
 class BeforeAfterSlider extends StatefulWidget {
   const BeforeAfterSlider({
     super.key,
-    required this.beforeUrl,
+    this.beforeUrl,
+    this.beforeBytes,
     required this.afterUrl,
     this.checkerboardAfter = false,
-  });
+  }) : assert(beforeUrl != null || beforeBytes != null,
+            'BeforeAfterSlider requiere beforeUrl o beforeBytes');
 
-  final String beforeUrl;
+  final String? beforeUrl;
+  final Uint8List? beforeBytes;
   final String afterUrl;
   final bool checkerboardAfter;
 
@@ -53,12 +63,15 @@ class _BeforeAfterSliderState extends State<BeforeAfterSlider> {
             children: [
               ClipRect(
                 clipper: _RevealClipper(0, _position),
-                child: CachedNetworkImage(
-                  imageUrl: widget.beforeUrl,
-                  fit: BoxFit.contain,
-                  placeholder: (context, url) => const Center(
-                      child: CircularProgressIndicator(color: Colors.white)),
-                ),
+                child: widget.beforeBytes != null
+                    ? Image.memory(widget.beforeBytes!, fit: BoxFit.contain)
+                    : CachedNetworkImage(
+                        imageUrl: widget.beforeUrl!,
+                        fit: BoxFit.contain,
+                        placeholder: (context, url) => const Center(
+                            child: CircularProgressIndicator(
+                                color: Colors.white)),
+                      ),
               ),
               if (widget.checkerboardAfter)
                 ClipRect(
