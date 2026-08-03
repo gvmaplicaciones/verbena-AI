@@ -116,12 +116,19 @@ Deno.serve(async (req) => {
     }
     return json({ status: "processed" });
   } catch (err) {
-    // Elimina el registro de dedup para que RevenueCat pueda reintentar
-    // en el próximo intento y el evento no quede perdido sin procesar.
-    await admin.from("revenuecat_events").delete().eq("id", event.id).catch((e) =>
-      console.error("revenuecat-webhook: no se pudo eliminar dedup tras error", e),
-    );
     console.error("revenuecat-webhook processing error", err);
+    // Elimina el registro de dedup para que RevenueCat pueda reintentar en el
+    // próximo intento -- envuelto en su propio try/catch (no solo un .catch()
+    // encadenado): un fallo aquí no debe impedir llegar al `return json` de
+    // abajo. Incidente 2026-08-03: un evento quedó "atascado" como procesado
+    // sin haber concedido nada porque este borrado no se completó, y todo
+    // reintento posterior de RevenueCat chocaba con el dedupe en vez de
+    // reprocesar el evento.
+    try {
+      await admin.from("revenuecat_events").delete().eq("id", event.id);
+    } catch (deleteErr) {
+      console.error("revenuecat-webhook: no se pudo eliminar dedup tras error", deleteErr);
+    }
     return json({ error: "internal error" }, 500);
   }
 });

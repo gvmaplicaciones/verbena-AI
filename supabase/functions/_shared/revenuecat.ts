@@ -215,10 +215,21 @@ async function purgePersistedPhotos(
 }
 
 /**
- * NON_RENEWING_PURCHASE: pack de créditos extra (nunca caduca). Solo se
- * concede si hay suscripción activa -- defensa en profundidad, el paywall ya
- * lo bloquea del lado del cliente (regla de negocio: nunca alternativa a
- * suscribirse).
+ * NON_RENEWING_PURCHASE: pack de créditos extra (nunca caduca). Se concede
+ * siempre que el evento llegue, sin comprobar nuestro subscription_status en
+ * caché -- el paywall ya bloquea la compra en el cliente si no hay
+ * suscripción activa (hasActiveAccess), y un NON_RENEWING_PURCHASE real de
+ * RevenueCat ya es evidencia suficiente de un cobro real.
+ *
+ * Bug detectado el 2026-08-03: este guard exigía subscription_status
+ * active/cancelled y lanzaba si no -- pero RevenueCat no garantiza el orden
+ * de entrega de sus webhooks, así que un NON_RENEWING_PURCHASE podía llegar
+ * antes que el INITIAL_PURCHASE de la misma sesión de compra, con
+ * subscription_status todavía en 'expired'/'none' en ese instante. El throw
+ * debía disparar un reintento (ver dedupe en revenuecat-webhook/index.ts),
+ * pero el evento quedó "atascado" como procesado sin haber concedido nada,
+ * perdiendo el cobro real para siempre. Confiar en el evento en vez de nuestro
+ * propio caché elimina esta clase de bug de raíz.
  */
 export async function grantExtraPack(
   admin: ReturnType<typeof supabaseAdmin>,
@@ -245,14 +256,6 @@ export async function grantExtraPack(
     .maybeSingle();
   if (creditsErr) throw creditsErr;
   if (!credits) return;
-  // 'cancelled' = auto-renovar desactivado pero periodo pagado aún vivo;
-  // el cobro fue real, se concede igual. Para 'expired'/'none' se lanza error
-  // (RevenueCat reintentará) en vez de ignorar silenciosamente un cobro real.
-  if (credits.subscription_status !== "active" && credits.subscription_status !== "cancelled") {
-    throw new Error(
-      `extra_pack_requires_active_subscription: user=${userId} status=${credits.subscription_status}`,
-    );
-  }
 
   const newExtra = credits.extra_credits + pack.credits;
   await admin
