@@ -216,9 +216,17 @@ class _AccountGateScreenState extends ConsumerState<AccountGateScreen> {
       await ref.read(authRepositoryProvider).linkEmailPassword(email: email, password: password);
       if (!mounted) return;
       context.safePop(true);
-    } on AuthException catch (e) {
+    } on AuthException catch (e, st) {
+      developer.log('createAccount failed (AuthException): ${e.message} statusCode=${e.statusCode} code=${e.code}',
+          name: 'AccountGateScreen', error: e, stackTrace: st);
+      unawaited(Sentry.captureException(e,
+          stackTrace: st, hint: Hint.withMap({'stage': 'emailCreateAccount'})));
       setState(() => _error = _friendlyError(e));
-    } catch (_) {
+    } catch (e, st) {
+      developer.log('createAccount failed (unexpected ${e.runtimeType}): $e',
+          name: 'AccountGateScreen', error: e, stackTrace: st);
+      unawaited(Sentry.captureException(e,
+          stackTrace: st, hint: Hint.withMap({'stage': 'emailCreateAccount'})));
       setState(() => _error = 'No hemos podido crear tu cuenta. Inténtalo de nuevo.');
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -264,9 +272,17 @@ class _AccountGateScreenState extends ConsumerState<AccountGateScreen> {
       if (!mounted) return;
       _showSnack('Sesión recuperada.');
       context.safePop(false);
-    } on AuthException catch (e) {
+    } on AuthException catch (e, st) {
+      developer.log('signIn failed (AuthException): ${e.message} statusCode=${e.statusCode} code=${e.code}',
+          name: 'AccountGateScreen', error: e, stackTrace: st);
+      unawaited(Sentry.captureException(e,
+          stackTrace: st, hint: Hint.withMap({'stage': 'emailSignIn'})));
       setState(() => _error = _friendlyError(e));
-    } catch (_) {
+    } catch (e, st) {
+      developer.log('signIn failed (unexpected ${e.runtimeType}): $e',
+          name: 'AccountGateScreen', error: e, stackTrace: st);
+      unawaited(Sentry.captureException(e,
+          stackTrace: st, hint: Hint.withMap({'stage': 'emailSignIn'})));
       setState(() => _error = 'No hemos podido iniciar sesión. Revisa tus datos.');
     } finally {
       if (mounted) setState(() => _busy = false);
