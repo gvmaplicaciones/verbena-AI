@@ -8,6 +8,7 @@ import '../../../core/constants/credits.dart';
 import '../../../core/router/app_routes.dart';
 import '../../../core/theme/verbena_icons.dart';
 import '../../../core/theme/verbena_theme.dart';
+import '../../../core/utils/date_format.dart';
 import '../../../core/utils/navigation.dart';
 import '../../../core/widgets/before_after_crossfade.dart';
 import '../../../data/models/plan.dart';
@@ -48,6 +49,10 @@ class _PaywallScreenState extends ConsumerState<PaywallScreen> {
   bool _busy = false;
   String? _justBoughtPackId;
   String _selectedPlanId = PlanIds.mensual;
+  // Un suscriptor que llega aquí (p.ej. desde el botón de Perfil) casi
+  // siempre quiere comprar el pack extra, no volver a ver el pitch de
+  // planes -- se colapsa por defecto y solo se despliega si lo pide.
+  bool _showPlanPitch = false;
 
   @override
   void initState() {
@@ -122,7 +127,8 @@ class _PaywallScreenState extends ConsumerState<PaywallScreen> {
   }
 
   void _showProcessingSnack() {
-    _showSnack('Tu pago se está procesando, te avisaremos en cuanto se confirme.');
+    _showSnack(
+        'Tu pago se está procesando, te avisaremos en cuanto se confirme.');
   }
 
   Future<void> _subscribeSemanal() => _buy(
@@ -227,6 +233,15 @@ class _PaywallScreenState extends ConsumerState<PaywallScreen> {
                     .priceString ??
                 extra.priceDisplay);
 
+    final currentPlanTitle =
+        credits.activePlanId == PlanIds.semanal ? 'Semanal' : 'Mensual';
+    // El pitch completo (titular, beneficios, tarjetas de plan, EMPEZAR) solo
+    // se enseña sin pedirlo a quien todavía no tiene acceso -- a un
+    // suscriptor ya se le muestra directamente lo que probablemente busca
+    // (comprar recarga extra) y el pitch queda como sección plegable por si
+    // quiere cambiar de plan.
+    final showPlanPitch = !credits.hasActiveAccess || _showPlanPitch;
+
     return AbsorbPointer(
       absorbing: _busy,
       child: SingleChildScrollView(
@@ -241,102 +256,159 @@ class _PaywallScreenState extends ConsumerState<PaywallScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text('DESBLOQUEA TODO VERBENAI',
-                      style: VerbenaText.display(size: 25)),
-                  const SizedBox(height: 16),
-                  _BenefitRow(
-                      '${mensual.tierCredits} fotos al mes con el plan mensual'),
-                  const _BenefitRow('Los 6 modos de edición sin límites'),
-                  const _BenefitRow('Guarda tus favoritas para siempre'),
-                  const _BenefitRow('Tu armario con hasta 30 prendas'),
-                  const SizedBox(height: 6),
-                  if (credits.canUseFreeGeneration) ...[
-                    GestureDetector(
-                      // Accionable: cierra el paywall y deja al usuario justo donde
-                      // estaba para elegir foto/modo y generar con su gratis.
-                      onTap: () => context.safePop(),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 14),
-                        decoration: BoxDecoration(
-                          color: VerbenaColors.card,
-                          border: Border.all(
-                              color: VerbenaColors.terracotta, width: 1.5),
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Tu primera foto va gratis',
-                                    style: VerbenaText.body(
-                                        size: 14.5,
-                                        weight: FontWeight.w700,
-                                        color: VerbenaColors.terracotta),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    'Sin trampa ni cartón. Toca para probarlo antes de suscribirte.',
-                                    style: VerbenaText.body(
-                                        size: 12.5,
-                                        color: VerbenaColors.textMuted),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const Icon(Icons.chevron_right_rounded,
-                                color: VerbenaColors.terracotta),
-                          ],
-                        ),
+                  if (credits.hasActiveAccess) ...[
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: VerbenaColors.teal,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Tu plan: $currentPlanTitle',
+                            style: VerbenaText.display(
+                                size: 18, color: VerbenaColors.background),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            credits.subscriptionStatus == 'cancelled'
+                                ? (credits.expiresAt != null
+                                    ? 'Cancelado — activo hasta ${formatShortDate(credits.expiresAt!)}'
+                                    : 'Cancelado — activo hasta fin de periodo')
+                                : '${credits.tierUsed}/${credits.tierTotal} fotos del plan usadas · +${credits.extraCredits} extra',
+                            style: VerbenaText.body(
+                                size: 13,
+                                color: VerbenaColors.background
+                                    .withValues(alpha: 0.9)),
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(height: 14),
+                    if (extra != null)
+                      _ExtraPackCard(
+                        credits: extra.credits,
+                        price: extraPrice!,
+                        onBuy: _buyExtra,
+                        justBought: _justBoughtPackId == ExtraPackIds.extra7,
+                      ),
+                    const SizedBox(height: 14),
+                    Center(
+                      child: TextButton(
+                        onPressed: () =>
+                            setState(() => _showPlanPitch = !_showPlanPitch),
+                        child: Text(
+                          _showPlanPitch
+                              ? 'Ocultar otros planes'
+                              : 'Ver otros planes',
+                          style: VerbenaText.body(
+                                  size: 13, color: VerbenaColors.textMuted)
+                              .copyWith(decoration: TextDecoration.underline),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
                   ],
-                  _PlanCard(
-                    title: 'Semanal',
-                    price: semanalPrice,
-                    cadence: '/semana',
-                    creditsLabel: '${semanal.tierCredits} fotos por semana',
-                    accentColor: VerbenaColors.teal,
-                    selected: _selectedPlanId == PlanIds.semanal,
-                    onTap: () =>
-                        setState(() => _selectedPlanId = PlanIds.semanal),
-                  ),
-                  const SizedBox(height: 14),
-                  _PlanCard(
-                    title: 'Mensual',
-                    price: mensualPrice,
-                    cadence: '/mes',
-                    creditsLabel: '${mensual.tierCredits} fotos al mes',
-                    accentColor: VerbenaColors.terracotta,
-                    selected: _selectedPlanId == PlanIds.mensual,
-                    onTap: () =>
-                        setState(() => _selectedPlanId = PlanIds.mensual),
-                    badgeLabel: 'MEJOR VALOR',
-                    priceHighlight: pricePerPhoto,
-                  ),
-                  const SizedBox(height: 18),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: _subscribeSelected,
-                      child: Text('EMPEZAR',
-                          style: VerbenaText.display(
-                              size: 16, color: VerbenaColors.background)),
+                  if (showPlanPitch) ...[
+                    Text('DESBLOQUEA TODO VERBENAI',
+                        style: VerbenaText.display(size: 25)),
+                    const SizedBox(height: 16),
+                    _BenefitRow(
+                        '${mensual.tierCredits} fotos al mes con el plan mensual'),
+                    const _BenefitRow('Los 6 modos de edición sin límites'),
+                    const _BenefitRow('Guarda tus favoritas para siempre'),
+                    const _BenefitRow('Tu armario con hasta 30 prendas'),
+                    const SizedBox(height: 6),
+                    if (credits.canUseFreeGeneration) ...[
+                      GestureDetector(
+                        // Accionable: cierra el paywall y deja al usuario justo donde
+                        // estaba para elegir foto/modo y generar con su gratis.
+                        onTap: () => context.safePop(),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 14),
+                          decoration: BoxDecoration(
+                            color: VerbenaColors.card,
+                            border: Border.all(
+                                color: VerbenaColors.terracotta, width: 1.5),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Tu primera foto va gratis',
+                                      style: VerbenaText.body(
+                                          size: 14.5,
+                                          weight: FontWeight.w700,
+                                          color: VerbenaColors.terracotta),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      'Sin trampa ni cartón. Toca para probarlo antes de suscribirte.',
+                                      style: VerbenaText.body(
+                                          size: 12.5,
+                                          color: VerbenaColors.textMuted),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const Icon(Icons.chevron_right_rounded,
+                                  color: VerbenaColors.terracotta),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                    ],
+                    _PlanCard(
+                      title: 'Semanal',
+                      price: semanalPrice,
+                      cadence: '/semana',
+                      creditsLabel: '${semanal.tierCredits} fotos por semana',
+                      accentColor: VerbenaColors.teal,
+                      selected: _selectedPlanId == PlanIds.semanal,
+                      onTap: () =>
+                          setState(() => _selectedPlanId = PlanIds.semanal),
                     ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Text(
-                      'Se renueva automáticamente hasta que la canceles. Cancela cuando quieras, sin líos ni permanencia.',
-                      textAlign: TextAlign.center,
-                      style: VerbenaText.body(
-                          size: 12, color: VerbenaColors.textMuted),
+                    const SizedBox(height: 14),
+                    _PlanCard(
+                      title: 'Mensual',
+                      price: mensualPrice,
+                      cadence: '/mes',
+                      creditsLabel: '${mensual.tierCredits} fotos al mes',
+                      accentColor: VerbenaColors.terracotta,
+                      selected: _selectedPlanId == PlanIds.mensual,
+                      onTap: () =>
+                          setState(() => _selectedPlanId = PlanIds.mensual),
+                      badgeLabel: 'MEJOR VALOR',
+                      priceHighlight: pricePerPhoto,
                     ),
-                  ),
+                    const SizedBox(height: 18),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: _subscribeSelected,
+                        child: Text('EMPEZAR',
+                            style: VerbenaText.display(
+                                size: 16, color: VerbenaColors.background)),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Text(
+                        'Se renueva automáticamente hasta que la canceles. Cancela cuando quieras, sin líos ni permanencia.',
+                        textAlign: TextAlign.center,
+                        style: VerbenaText.body(
+                            size: 12, color: VerbenaColors.textMuted),
+                      ),
+                    ),
+                  ],
                   Center(
                     child: TextButton(
                       onPressed: () => context.push(AppRoutes.privacyPolicy),
@@ -348,68 +420,6 @@ class _PaywallScreenState extends ConsumerState<PaywallScreen> {
                       ),
                     ),
                   ),
-                  if (credits.hasActiveAccess && extra != null) ...[
-                    const SizedBox(height: 10),
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                            color:
-                                VerbenaColors.textDark.withValues(alpha: 0.3),
-                            width: 1.5),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Recarga rápida — ${extra.credits} fotos',
-                            style: VerbenaText.body(
-                                size: 14.5, weight: FontWeight.w700),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Esto es una recarga puntual, no sustituye tu suscripción.',
-                            style: VerbenaText.body(
-                                size: 12.5, color: VerbenaColors.textMuted),
-                          ),
-                          const SizedBox(height: 8),
-                          SizedBox(
-                            width: double.infinity,
-                            child: OutlinedButton(
-                              onPressed: _buyExtra,
-                              style: OutlinedButton.styleFrom(
-                                side: const BorderSide(
-                                    color: VerbenaColors.teal, width: 2),
-                                shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12)),
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 12),
-                              ),
-                              child: Text(
-                                'Comprar por $extraPrice',
-                                style: VerbenaText.display(
-                                    size: 13,
-                                    color: VerbenaColors.teal,
-                                    letterSpacing: 0.3),
-                              ),
-                            ),
-                          ),
-                          if (_justBoughtPackId == ExtraPackIds.extra7) ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              '¡Recarga añadida a tu cuenta!',
-                              textAlign: TextAlign.center,
-                              style: VerbenaText.body(
-                                  size: 12,
-                                  weight: FontWeight.w700,
-                                  color: VerbenaColors.teal),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ],
                   const SizedBox(height: 12),
                 ],
               ),
@@ -493,6 +503,80 @@ class _PaywallHero extends StatelessWidget {
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Sección "comprar recarga extra", promovida arriba del todo para
+/// suscriptores en vez de dejarla al final de un pitch de planes que ya no
+/// les aplica (reportado: costaba encontrarla).
+class _ExtraPackCard extends StatelessWidget {
+  const _ExtraPackCard({
+    required this.credits,
+    required this.price,
+    required this.onBuy,
+    required this.justBought,
+  });
+
+  final int credits;
+  final String price;
+  final VoidCallback onBuy;
+  final bool justBought;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: VerbenaColors.card,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+            color: VerbenaColors.terracotta.withValues(alpha: 0.4), width: 1.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Recarga rápida — $credits fotos',
+            style: VerbenaText.body(size: 14.5, weight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Esto es una recarga puntual, no sustituye tu suscripción.',
+            style: VerbenaText.body(size: 12.5, color: VerbenaColors.textMuted),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: onBuy,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: VerbenaColors.terracotta,
+                foregroundColor: VerbenaColors.background,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+              ),
+              child: Text(
+                'Comprar por $price',
+                style: VerbenaText.display(
+                    size: 13,
+                    color: VerbenaColors.background,
+                    letterSpacing: 0.3),
+              ),
+            ),
+          ),
+          if (justBought) ...[
+            const SizedBox(height: 4),
+            Text(
+              '¡Recarga añadida a tu cuenta!',
+              textAlign: TextAlign.center,
+              style: VerbenaText.body(
+                  size: 12, weight: FontWeight.w700, color: VerbenaColors.teal),
+            ),
+          ],
         ],
       ),
     );
