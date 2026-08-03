@@ -1,8 +1,12 @@
+import 'dart:async';
+import 'dart:developer' as developer;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 
 import '../../../core/constants/credits.dart';
 import '../../../core/router/app_routes.dart';
@@ -109,7 +113,7 @@ class _PaywallScreenState extends ConsumerState<PaywallScreen> {
       );
       if (!mounted) return;
       await onSuccess();
-    } on PlatformException catch (e) {
+    } on PlatformException catch (e, st) {
       final code = PurchasesErrorHelper.getErrorCode(e);
       if (code == PurchasesErrorCode.purchaseCancelledError) {
         return;
@@ -118,8 +122,18 @@ class _PaywallScreenState extends ConsumerState<PaywallScreen> {
         _showProcessingSnack();
         return;
       }
+      developer.log('purchase failed: productId=$productId code=$code message=${e.message}',
+          name: 'PaywallScreen', error: e, stackTrace: st);
+      unawaited(Sentry.captureException(e,
+          stackTrace: st,
+          hint: Hint.withMap({'stage': 'purchase', 'productId': productId})));
       _showSnack('No hemos podido completar la compra.');
-    } catch (_) {
+    } catch (e, st) {
+      developer.log('purchase failed (unexpected ${e.runtimeType}): productId=$productId $e',
+          name: 'PaywallScreen', error: e, stackTrace: st);
+      unawaited(Sentry.captureException(e,
+          stackTrace: st,
+          hint: Hint.withMap({'stage': 'purchase', 'productId': productId})));
       _showSnack('No hemos podido completar la compra.');
     } finally {
       if (mounted) setState(() => _busy = false);
