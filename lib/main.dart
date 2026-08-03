@@ -15,6 +15,7 @@ import 'core/config/env.dart';
 import 'core/router/app_router.dart' show initialLocationProvider;
 import 'core/router/app_routes.dart' show AppRoutes, onboardingCompletedPrefsKey;
 import 'data/repositories/admin_repository.dart' show savedAnonRefreshTokenPrefsKey;
+import 'data/repositories/auth_repository.dart' show googleSignInHashedNonce;
 
 // A diferencia de las llamadas nativas (Sentry, RevenueCat), que sí respetan
 // network_security_config.xml, el HttpClient de dart:io usa su propio store
@@ -45,8 +46,14 @@ Future<void> main() async {
 
   // serverClientId = client ID "web" (no el de Android): es el que da a los
   // idToken la audiencia que Supabase espera. Se llama una sola vez, antes
-  // de cualquier authenticate() en AuthRepository.
-  await GoogleSignIn.instance.initialize(serverClientId: Env.googleWebClientId);
+  // de cualquier authenticate() en AuthRepository. nonce: ver
+  // googleSignInHashedNonce en auth_repository.dart -- Google lo incrusta tal
+  // cual en el idToken, y linkGoogle()/signInWithGoogle() mandan la versión
+  // en crudo a Supabase para que la valide.
+  await GoogleSignIn.instance.initialize(
+    serverClientId: Env.googleWebClientId,
+    nonce: googleSignInHashedNonce,
+  );
 
   // Auth anónima desde el primer uso, sin registro obligatorio. Se vincula a
   // una cuenta real (email/Apple/Google) solo si el usuario decide

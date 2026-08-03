@@ -44,6 +44,15 @@ Future<void> _debugLogIdTokenPayload(String source, String idToken) async {
   );
 }
 
+/// Nonce fijo para toda la vida del proceso -- GoogleSignIn.instance.initialize()
+/// (main.dart) solo puede llamarse una vez, así que no se puede regenerar por
+/// cada intento de login. Google incrusta [googleSignInHashedNonce] tal cual
+/// en el claim "nonce" del idToken; Supabase recibe el nonce en crudo
+/// ([googleSignInRawNonce]) y lo hashea él mismo para comparar (igual que ya
+/// hace Apple más abajo, mismo motivo).
+final googleSignInRawNonce = generateNonce();
+final googleSignInHashedNonce = sha256.convert(utf8.encode(googleSignInRawNonce)).toString();
+
 class AuthRepository {
   AuthRepository(this._client);
 
@@ -51,30 +60,33 @@ class AuthRepository {
 
   bool get isAnonymous => _client.auth.currentUser?.isAnonymous ?? true;
 
-  /// Dispara el selector nativo de cuentas de Google y devuelve el idToken +
-  /// accessToken necesarios para linkIdentityWithIdToken/signInWithIdToken.
-  /// El accessToken ya no viene junto al idToken desde google_sign_in v7 --
-  /// hay que pedirlo aparte vía authorizationClient. Lanza
-  /// GoogleSignInException si el usuario cancela o falla el selector.
-  Future<({String idToken, String accessToken})> _googleTokens() async {
+  /// Dispara el selector nativo de cuentas de Google y devuelve el idToken
+  /// necesario para linkIdentityWithIdToken/signInWithIdToken. No se pide
+  /// accessToken vía authorizationClient.authorizeScopes: ese access token es
+  /// de una petición OAuth totalmente distinta a la que generó el idToken, y
+  /// mandarlo junto al idToken hace que Supabase falle el chequeo at_hash
+  /// (id_token.at_hash se calcula sobre el access token que Google emite en
+  /// la MISMA respuesta, no sobre uno pedido después) -- causaba
+  /// AuthApiException("Bad ID token", 400). Lanza GoogleSignInException si el
+  /// usuario cancela o falla el selector.
+  Future<String> _googleTokens() async {
     final account = await GoogleSignIn.instance.authenticate();
     final idToken = account.authentication.idToken;
     if (idToken == null) {
       throw const AuthException('Google no devolvió un idToken.');
     }
     await _debugLogIdTokenPayload('Google', idToken);
-    final authorization = await account.authorizationClient.authorizeScopes(['email']);
-    return (idToken: idToken, accessToken: authorization.accessToken);
+    return idToken;
   }
 
   /// Igual que [linkEmailPassword] pero con Google: vincula la sesión
   /// anónima actual sin crear un usuario nuevo (mismo user_id).
   Future<void> linkGoogle() async {
-    final tokens = await _googleTokens();
+    final idToken = await _googleTokens();
     await _client.auth.linkIdentityWithIdToken(
       provider: OAuthProvider.google,
-      idToken: tokens.idToken,
-      accessToken: tokens.accessToken,
+      idToken: idToken,
+      nonce: googleSignInRawNonce,
     );
   }
 
@@ -82,11 +94,11 @@ class AuthRepository {
   /// actual por la cuenta real ya vinculada a esta cuenta de Google (user_id
   /// distinto -- el caller debe reconfigurar RevenueCat después).
   Future<AuthResponse> signInWithGoogle() async {
-    final tokens = await _googleTokens();
+    final idToken = await _googleTokens();
     return _client.auth.signInWithIdToken(
       provider: OAuthProvider.google,
-      idToken: tokens.idToken,
-      accessToken: tokens.accessToken,
+      idToken: idToken,
+      nonce: googleSignInRawNonce,
     );
   }
 
