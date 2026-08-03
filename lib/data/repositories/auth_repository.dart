@@ -1,12 +1,48 @@
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../providers/supabase_provider.dart';
+
+// TODO(debug bad_jwt): breadcrumb temporal para diagnosticar "invalid claim:
+// missing sub claim" en linkIdentityWithIdToken/Google -- decodifica el
+// payload real del idToken justo antes de mandarlo a Supabase y lo deja
+// como breadcrumb, así queda adjunto en Sentry al AuthException(bad_jwt) que
+// account_gate_screen.dart ya captura justo después. El iPhone de prueba no
+// tiene consola visible, por eso Sentry y no solo debugPrint. Quitar este
+// breadcrumb (y el import de sentry_flutter si deja de hacer falta aquí) en
+// cuanto se confirme la causa real -- el payload decodificado puede incluir
+// email/nombre del usuario.
+Future<void> _debugLogIdTokenPayload(String source, String idToken) async {
+  final parts = idToken.split('.');
+  final data = <String, dynamic>{'parts': parts.length, 'length': idToken.length};
+  if (parts.length != 3) {
+    data['error'] = 'idToken no tiene forma de JWT (esperadas 3 partes)';
+  } else {
+    try {
+      var payload = parts[1];
+      payload += '=' * ((4 - payload.length % 4) % 4);
+      data['payload'] = utf8.decode(base64Url.decode(payload));
+    } catch (e) {
+      data['error'] = 'no se pudo decodificar el payload: $e';
+    }
+  }
+  debugPrint('[bad_jwt debug] $source idToken: $data');
+  await Sentry.addBreadcrumb(
+    Breadcrumb(
+      category: 'auth.bad_jwt_debug',
+      message: '$source idToken payload (debug temporal)',
+      data: data,
+      level: SentryLevel.info,
+    ),
+  );
+}
 
 class AuthRepository {
   AuthRepository(this._client);
@@ -26,6 +62,7 @@ class AuthRepository {
     if (idToken == null) {
       throw const AuthException('Google no devolvió un idToken.');
     }
+    await _debugLogIdTokenPayload('Google', idToken);
     final authorization = await account.authorizationClient.authorizeScopes(['email']);
     return (idToken: idToken, accessToken: authorization.accessToken);
   }
