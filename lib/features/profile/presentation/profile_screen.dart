@@ -272,72 +272,59 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  if (credits.isSubscribed)
-                    // Único punto de entrada al paywall para un suscriptor
-                    // activo que quiera comprar el pack extra sin tener que
-                    // agotar antes todos sus créditos generando (ver
-                    // PaywallScreen: ya muestra ese botón cuando
-                    // hasActiveAccess es true, solo hacía falta llegar ahí).
+                  if (credits.hasActiveAccess)
+                    // Único punto de entrada al paywall para comprar el pack
+                    // extra sin tener que agotar antes todos los créditos
+                    // generando (ver PaywallScreen: ya muestra ese botón
+                    // cuando hasActiveAccess es true, solo hacía falta llegar
+                    // ahí). hasActiveAccess cubre 'active' Y 'cancelled' --
+                    // un suscriptor cancelado sigue con acceso hasta fin de
+                    // periodo y debe poder comprar el pack extra igual.
                     InkWell(
                       borderRadius: BorderRadius.circular(14),
                       onTap: () => context.push(AppRoutes.paywall,
                           extra: 'profile_credits'),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: _CreditBox(
-                                    value:
-                                        '${credits.tierUsed}/${credits.tierTotal}',
-                                    label: 'fotos del plan',
-                                    color: VerbenaColors.teal,
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: _CreditBox(
-                                    value: '+${credits.extraCredits}',
-                                    label: 'fotos extra',
-                                    color: VerbenaColors.terracotta,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          const VerbenaChevronRightIcon(),
-                        ],
-                      ),
-                    )
-                  else if (credits.subscriptionStatus == 'cancelled')
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: VerbenaColors.card,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                            color: VerbenaColors.textDark.withValues(alpha: 0.15),
-                            width: 1.5),
-                      ),
                       child: Column(
                         children: [
-                          Text(
-                            credits.expiresAt != null
-                                ? 'Cancelada — activa hasta ${formatShortDate(credits.expiresAt!)}'
-                                : 'Cancelada — activa hasta fin de periodo',
-                            textAlign: TextAlign.center,
-                            style: VerbenaText.display(size: 17),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: _CreditBox(
+                                        value:
+                                            '${credits.tierUsed}/${credits.tierTotal}',
+                                        label: 'fotos del plan',
+                                        color: VerbenaColors.teal,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: _CreditBox(
+                                        value: '+${credits.extraCredits}',
+                                        label: 'fotos extra',
+                                        color: VerbenaColors.terracotta,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              const VerbenaChevronRightIcon(),
+                            ],
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'No se renovará, pero puedes seguir generando hasta esa fecha.',
-                            textAlign: TextAlign.center,
-                            style: VerbenaText.body(
-                                size: 12.5, color: VerbenaColors.textMuted),
-                          ),
+                          if (credits.subscriptionStatus == 'cancelled') ...[
+                            const SizedBox(height: 10),
+                            Text(
+                              credits.expiresAt != null
+                                  ? 'Cancelada — activa hasta ${formatShortDate(credits.expiresAt!)}'
+                                  : 'Cancelada — activa hasta fin de periodo',
+                              textAlign: TextAlign.center,
+                              style: VerbenaText.body(
+                                  size: 12.5, color: VerbenaColors.textMuted),
+                            ),
+                          ],
                         ],
                       ),
                     )
