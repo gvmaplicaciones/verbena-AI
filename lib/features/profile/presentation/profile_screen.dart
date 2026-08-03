@@ -16,6 +16,7 @@ import '../../../data/repositories/auth_repository.dart';
 import '../../../data/repositories/credits_repository.dart';
 import '../../../data/repositories/generations_repository.dart';
 import '../../../data/repositories/photo_repository.dart';
+import '../../../data/repositories/plans_repository.dart';
 import '../../../data/repositories/purchases_repository.dart';
 import 'gallery_grids.dart';
 
@@ -79,6 +80,43 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// Botón explícito para comprar el pack extra, con la cantidad y el
+  /// precio real de la tienda (RevenueCat) siempre visibles -- el tap sobre
+  /// las cajas de créditos de arriba es una vía adicional, pero no debe ser
+  /// la única forma de encontrar esto (reportado: usuarios suscritos no
+  /// veían ningún sitio claro para comprar fotos extra).
+  Widget _extraPackButton() {
+    final extraPacksAsync = ref.watch(extraPacksProvider);
+    final extra = extraPacksAsync.valueOrNull
+        ?.firstWhere((p) => p.packId == ExtraPackIds.extra7);
+    if (extra == null) return const SizedBox.shrink();
+    final offerings = ref.watch(offeringsProvider).valueOrNull;
+    final repo = ref.read(purchasesRepositoryProvider);
+    final extraPrice = offerings == null
+        ? extra.priceDisplay
+        : repo.findPackage(offerings, ExtraPackIds.extra7)?.storeProduct.priceString ??
+            extra.priceDisplay;
+
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton(
+        onPressed: () =>
+            context.push(AppRoutes.paywall, extra: 'profile_credits'),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: VerbenaColors.terracotta,
+          foregroundColor: VerbenaColors.background,
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        ),
+        child: Text(
+          'COMPRAR ${extra.credits} FOTOS EXTRA · $extraPrice',
+          style:
+              VerbenaText.display(size: 14, color: VerbenaColors.background),
+        ),
+      ),
+    );
   }
 
   Future<void> _confirmSignOut() async {
@@ -272,13 +310,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  if (credits.hasActiveAccess)
-                    // Único punto de entrada al paywall para comprar el pack
-                    // extra sin tener que agotar antes todos los créditos
-                    // generando (ver PaywallScreen: ya muestra ese botón
-                    // cuando hasActiveAccess es true, solo hacía falta llegar
-                    // ahí). hasActiveAccess cubre 'active' Y 'cancelled' --
-                    // un suscriptor cancelado sigue con acceso hasta fin de
+                  if (credits.hasActiveAccess) ...[
+                    // hasActiveAccess cubre 'active' Y 'cancelled' -- un
+                    // suscriptor cancelado sigue con acceso hasta fin de
                     // periodo y debe poder comprar el pack extra igual.
                     InkWell(
                       borderRadius: BorderRadius.circular(14),
@@ -327,8 +361,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           ],
                         ],
                       ),
-                    )
-                  else
+                    ),
+                    const SizedBox(height: 12),
+                    _extraPackButton(),
+                  ] else
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(16),
