@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/constants/credits.dart';
@@ -18,6 +20,7 @@ import '../../../data/repositories/generations_repository.dart';
 import '../../../data/repositories/photo_repository.dart';
 import '../../../data/repositories/plans_repository.dart';
 import '../../../data/repositories/purchases_repository.dart';
+import '../../../services/analytics_service.dart';
 import 'gallery_grids.dart';
 
 /// El handoff deja "Cancelar suscripción" como un confirm dialog puramente
@@ -37,6 +40,7 @@ class ProfileScreen extends ConsumerStatefulWidget {
 
 class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   bool _busy = false;
+  bool _justBoughtExtra = false;
 
   void _showSnack(String message) {
     if (!mounted) return;
@@ -82,6 +86,52 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     }
   }
 
+  /// Compra directa del pack extra desde Perfil -- sin pasar por Paywall
+  /// como paso intermedio (reportado: era un rodeo innecesario para algo
+  /// que ya se decide aquí mismo). Mismo flujo que paywall_screen._buy,
+  /// simplificado porque el pack extra no requiere comprobar entitlement.
+  Future<void> _buyExtraPack() async {
+    if (_busy) return;
+    if (ref.read(authRepositoryProvider).isAnonymous) {
+      final canProceed = await context.push<bool>(AppRoutes.accountGate);
+      if (canProceed != true || !mounted) return;
+    }
+    setState(() => _busy = true);
+    try {
+      final repo = ref.read(purchasesRepositoryProvider);
+      final offerings = await repo.fetchOfferings();
+      final package = repo.findPackage(offerings, ExtraPackIds.extra7);
+      if (package == null) {
+        _showSnack('Ese pack no está disponible ahora mismo.');
+        return;
+      }
+      await AnalyticsService.purchaseAttempted(planId: ExtraPackIds.extra7);
+      await repo.purchasePackage(package);
+      await repo.reconcile();
+      ref.invalidate(myCreditsProvider);
+      await AnalyticsService.purchaseCompleted(
+        planId: ExtraPackIds.extra7,
+        transactionIdentifier: repo.lastTransactionIdentifier,
+      );
+      if (!mounted) return;
+      setState(() => _justBoughtExtra = true);
+      _showSnack('¡Recarga añadida a tu cuenta!');
+    } on PlatformException catch (e) {
+      final code = PurchasesErrorHelper.getErrorCode(e);
+      if (code == PurchasesErrorCode.purchaseCancelledError) return;
+      if (code == PurchasesErrorCode.paymentPendingError) {
+        _showSnack(
+            'Tu pago se está procesando, te avisaremos en cuanto se confirme.');
+        return;
+      }
+      _showSnack('No hemos podido completar la compra.');
+    } catch (_) {
+      _showSnack('No hemos podido completar la compra.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   /// Botón explícito para comprar el pack extra, con la cantidad y el
   /// precio real de la tienda (RevenueCat) siempre visibles -- el tap sobre
   /// las cajas de créditos de arriba es una vía adicional, pero no debe ser
@@ -96,26 +146,42 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final repo = ref.read(purchasesRepositoryProvider);
     final extraPrice = offerings == null
         ? extra.priceDisplay
-        : repo.findPackage(offerings, ExtraPackIds.extra7)?.storeProduct.priceString ??
+        : repo
+                .findPackage(offerings, ExtraPackIds.extra7)
+                ?.storeProduct
+                .priceString ??
             extra.priceDisplay;
 
-    return SizedBox(
-      width: double.infinity,
-      child: ElevatedButton(
-        onPressed: () =>
-            context.push(AppRoutes.paywall, extra: 'profile_credits'),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: VerbenaColors.terracotta,
-          foregroundColor: VerbenaColors.background,
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+    return Column(
+      children: [
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: _buyExtraPack,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: VerbenaColors.terracotta,
+              foregroundColor: VerbenaColors.background,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14)),
+            ),
+            child: Text(
+              'COMPRAR ${extra.credits} FOTOS EXTRA · $extraPrice',
+              style: VerbenaText.display(
+                  size: 14, color: VerbenaColors.background),
+            ),
+          ),
         ),
-        child: Text(
-          'COMPRAR ${extra.credits} FOTOS EXTRA · $extraPrice',
-          style:
-              VerbenaText.display(size: 14, color: VerbenaColors.background),
-        ),
-      ),
+        if (_justBoughtExtra) ...[
+          const SizedBox(height: 6),
+          Text(
+            '¡Recarga añadida a tu cuenta!',
+            textAlign: TextAlign.center,
+            style: VerbenaText.body(
+                size: 12.5, weight: FontWeight.w700, color: VerbenaColors.teal),
+          ),
+        ],
+      ],
     );
   }
 
@@ -289,8 +355,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           ),
                         ),
                         ElevatedButton(
-                          onPressed: () => _openManageSubscription(
-                              credits.hasActiveAccess),
+                          onPressed: () =>
+                              _openManageSubscription(credits.hasActiveAccess),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: VerbenaColors.background,
                             foregroundColor: VerbenaColors.teal,
@@ -372,7 +438,8 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         color: VerbenaColors.card,
                         borderRadius: BorderRadius.circular(14),
                         border: Border.all(
-                            color: VerbenaColors.textDark.withValues(alpha: 0.15),
+                            color:
+                                VerbenaColors.textDark.withValues(alpha: 0.15),
                             width: 1.5),
                       ),
                       child: Column(
@@ -680,7 +747,9 @@ class _SectionHeader extends StatelessWidget {
         Text(
           title,
           style: VerbenaText.body(
-                  size: 12, weight: FontWeight.w600, color: VerbenaColors.textMuted)
+                  size: 12,
+                  weight: FontWeight.w600,
+                  color: VerbenaColors.textMuted)
               .copyWith(letterSpacing: 0.4),
         ),
         if (onSeeAll != null)
@@ -689,7 +758,9 @@ class _SectionHeader extends StatelessWidget {
             child: Text(
               'VER TODAS',
               style: VerbenaText.body(
-                      size: 11.5, weight: FontWeight.w700, color: VerbenaColors.teal)
+                      size: 11.5,
+                      weight: FontWeight.w700,
+                      color: VerbenaColors.teal)
                   .copyWith(letterSpacing: 0.3),
             ),
           ),

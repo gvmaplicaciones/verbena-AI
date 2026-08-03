@@ -51,5 +51,18 @@
 	<string>VerbenAI necesita acceder a tus fotos para que puedas elegir la imagen con la que generar tus creaciones.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>VerbenAI necesita acceso a tus fotos para guardar las imágenes que generas en tu galería.</string>
+	<key>GIDClientID</key>
+	<string>816132193114-5fvfnnjro36ur2eec00kv8ipe5h24gvq.apps.googleusercontent.com</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.816132193114-5fvfnnjro36ur2eec00kv8ipe5h24gvq</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>
