@@ -76,7 +76,12 @@ Deno.serve(async (req) => {
   // si el procesamiento falla — así el siguiente reintento puede procesarlo.
   const { error: dedupeErr } = await admin
     .from("revenuecat_events")
-    .insert({ id: event.id, event_type: event.type, app_user_id: event.app_user_id });
+    .insert({
+      id: event.id,
+      event_type: event.type,
+      app_user_id: event.app_user_id,
+      product_id: event.product_id ?? null,
+    });
   if (dedupeErr) {
     if (dedupeErr.code === "23505") {
       return json({ status: "already_processed" });
