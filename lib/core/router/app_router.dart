@@ -3,10 +3,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../data/models/garment_select_args.dart';
 import '../../data/models/generation_source.dart';
-import '../../data/models/mask_prompt_args.dart';
 import '../../data/models/processing_args.dart';
 import '../../data/models/result_args.dart';
-import '../../features/add_element/presentation/mask_prompt_screen.dart';
 import '../../features/admin/presentation/admin_categories_screen.dart';
 import '../../features/admin/presentation/admin_login_screen.dart';
 import '../../features/admin/presentation/admin_new_template_screen.dart';
@@ -24,9 +22,6 @@ import '../../features/profile/presentation/privacy_policy_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/profile/presentation/verified_photos_screen.dart';
 import '../../features/profile/presentation/wardrobe_screen.dart';
-import '../../data/models/mask_painter_args.dart';
-import '../../features/mask_painter/presentation/mask_painter_screen.dart';
-import '../../features/remove_element/presentation/remove_mode_select_screen.dart';
 import '../../features/result/presentation/result_screen.dart';
 import 'app_routes.dart';
 
@@ -48,20 +43,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const HomeScreen(),
       ),
       GoRoute(
-        path: AppRoutes.removeElementMode,
-        builder: (context, state) => const RemoveModeSelectScreen(),
-      ),
-      GoRoute(
         path: AppRoutes.photoSelect,
         builder: (context, state) => PhotoSelectScreen(source: state.extra! as GenerationSource),
-      ),
-      GoRoute(
-        path: AppRoutes.maskPainter,
-        builder: (context, state) => MaskPainterScreen(args: state.extra! as MaskPainterArgs),
-      ),
-      GoRoute(
-        path: AppRoutes.maskPrompt,
-        builder: (context, state) => MaskPromptScreen(args: state.extra! as MaskPromptArgs),
       ),
       GoRoute(
         path: AppRoutes.garmentSelect,

@@ -238,7 +238,6 @@ class _ProcessingScreenState extends ConsumerState<ProcessingScreen>
             directPhotoBytes: skipsVerification ? widget.args.photoBytes : null,
             directContentType: skipsVerification ? widget.args.contentType : null,
             secondPhotoSessionId: secondPhotoSessionId,
-            maskBytes: widget.args.maskBytes,
             garmentPhotoSessionIds:
                 garmentPhotoSessionIds.isEmpty ? null : garmentPhotoSessionIds,
             garmentIds: garmentIds.isEmpty ? null : garmentIds,

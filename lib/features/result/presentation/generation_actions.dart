@@ -1,9 +1,12 @@
+import 'dart:async';
+import 'dart:developer' as developer;
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show consolidateHttpClientResponseBytes;
 import 'package:flutter/material.dart';
 import 'package:gal/gal.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../../core/theme/verbena_icons.dart';
@@ -65,7 +68,17 @@ class _GenerationShareActionsState extends State<GenerationShareActions> {
         [XFile(tempFile.path)],
         text: 'Mira lo que me he hecho con VerbenAI 👀',
       );
-    } catch (_) {
+    } catch (e, st) {
+      // Reportado: en iOS el botón "no hace nada" -- GUARDAR (misma descarga
+      // previa) funciona bien, así que el fallo está en escribir el archivo
+      // temporal o en Share.shareXFiles, no en la descarga. Sin captura aquí
+      // no había forma de ver el error real (2026-08-04).
+      developer.log('whatsapp share failed: generationId=${widget.generationId}',
+          name: 'GenerationShareActions', error: e, stackTrace: st);
+      unawaited(Sentry.captureException(e,
+          stackTrace: st,
+          hint: Hint.withMap(
+              {'stage': 'share_whatsapp', 'generationId': widget.generationId})));
       _showSnack('No hemos podido compartir la imagen.');
     } finally {
       if (mounted) setState(() => _busy = false);

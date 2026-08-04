@@ -13,36 +13,21 @@ class CatalogSource extends GenerationSource {
   final Template template;
 }
 
-/// Cómo señala el usuario dónde añadir algo en la foto: descripción en texto
-/// o marcando la zona a mano sobre la imagen (máscara).
-enum AddTargetMode { text, mask }
-
 /// Modo "Añade o modifica algo" (grid de Home, fusión de los antiguos
-/// "Añadir algo"/"Modificar algo"). Siempre por texto ahora (generate-add-
-/// element) -- el prompt libre del usuario cubre "añadir" y "modificar" por
-/// igual sin distinción de código, sin selector de sub-modo previo.
-/// `mode: .mask` (generate-add-mask, stable-diffusion-inpainting) queda sin
-/// usar en el menú -- deprecated, no borrado, por si se retoma en el futuro
-/// con otro modelo de máscara mejor.
+/// "Añadir algo"/"Modificar algo"). Siempre por texto (generate-add-element)
+/// -- el prompt libre del usuario cubre "añadir" y "modificar" por igual sin
+/// distinción de código.
 class AddElementSource extends GenerationSource {
-  const AddElementSource({this.mode = AddTargetMode.text, this.prompt = ''});
+  const AddElementSource({this.prompt = ''});
 
-  final AddTargetMode mode;
   final String prompt;
 }
 
-/// Cómo señala el usuario qué eliminar de la foto: descripción en texto o
-/// marcando la zona a mano sobre la imagen (máscara).
-enum RemoveTargetMode { text, mask }
-
-/// Modo "Eliminar algo" (grid de Home). FASE 2a: sub-modo "Por texto"
-/// conectado a generación real (generate-remove-element) -- describe qué
-/// quitar de la foto. `mode: .mask` ("Selecciona lo que quieres borrar")
-/// sigue sin implementar, ver RemoveModeSelectScreen.
+/// Modo "Eliminar algo" (grid de Home). Siempre por texto (generate-remove-
+/// element) -- describe qué quitar de la foto.
 class RemoveElementSource extends GenerationSource {
-  const RemoveElementSource({this.mode = RemoveTargetMode.text, this.prompt = ''});
+  const RemoveElementSource({this.prompt = ''});
 
-  final RemoveTargetMode mode;
   final String prompt;
 }
 
@@ -85,16 +70,6 @@ class EnhanceQualitySource extends GenerationSource {
   const EnhanceQualitySource();
 }
 
-/// Antiguo modo "Modificar algo" (5ª ficha de Home) -- fusionado con
-/// "Añadir algo" en AddElementSource (ver arriba). Sin ficha propia en Home
-/// ya, deprecated, no borrado, por si se retoma en el futuro con otro modelo
-/// de máscara mejor (generate-modify-mask, flux-fill-pro).
-class ModifyElementSource extends GenerationSource {
-  const ModifyElementSource({this.prompt = ''});
-
-  final String prompt;
-}
-
 /// Qué modos ya generan de verdad -- centralizado aquí para que
 /// ProcessingScreen (que corta el flujo antes de verify-photo/generate para
 /// los modos "Próximamente") y cualquier otro sitio lean la misma fuente de
@@ -102,10 +77,8 @@ class ModifyElementSource extends GenerationSource {
 extension GenerationSourceStatus on GenerationSource {
   bool get isComingSoon => switch (this) {
         CatalogSource() || AddElementSource() => false,
-        RemoveElementSource(mode: RemoveTargetMode.text) => false,
-        RemoveElementSource(mode: RemoveTargetMode.mask) => false,
+        RemoveElementSource() => false,
         ChangeBackgroundSource() => false,
-        ModifyElementSource() => false,
         TryOnSource() => false,
         RemoveBackgroundSource() => false,
         EnhanceQualitySource() => false,

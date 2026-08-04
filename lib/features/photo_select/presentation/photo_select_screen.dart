@@ -16,7 +16,6 @@ import '../../../core/utils/navigation.dart';
 import '../../../core/widgets/confetti_background.dart';
 import '../../../data/models/garment_select_args.dart';
 import '../../../data/models/generation_source.dart';
-import '../../../data/models/mask_painter_args.dart';
 import '../../../data/models/processing_args.dart';
 import '../../../data/models/verified_photo_summary.dart';
 import '../../../data/repositories/credits_repository.dart';
@@ -93,8 +92,8 @@ class PhotoSelectScreen extends ConsumerStatefulWidget {
 
 class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
   bool get _isPromptSource => switch (widget.source) {
-        AddElementSource(mode: AddTargetMode.text) => true,
-        RemoveElementSource(mode: RemoveTargetMode.text) => true,
+        AddElementSource() => true,
+        RemoveElementSource() => true,
         ChangeBackgroundSource() => true,
         _ => false,
       };
@@ -141,24 +140,18 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
         AddElementSource() => 'Añade o modifica algo en tu foto',
         RemoveElementSource() => 'Elimina algo de tu foto',
         ChangeBackgroundSource() => 'Cambia el fondo de tu foto',
-        ModifyElementSource() => 'Modifica algo de tu foto',
         RemoveBackgroundSource() => 'Elimina el fondo de tu foto',
         _ => '¿Con qué foto lo hacemos?',
       };
 
   String get _subtitle => switch (widget.source) {
         CatalogSource(:final template) => 'Vamos a meterte en: ${template.name}',
-        AddElementSource(mode: AddTargetMode.text) =>
+        AddElementSource() =>
           'Elige hasta 2 fotos y cuéntanos qué quieres añadir o cambiar',
-        AddElementSource(mode: AddTargetMode.mask) =>
-          'Elige la foto en la que quieres añadir algo',
-        RemoveElementSource(mode: RemoveTargetMode.text) =>
+        RemoveElementSource() =>
           'Elige una foto y cuéntanos qué quieres eliminar',
-        RemoveElementSource(mode: RemoveTargetMode.mask) =>
-          'Elige la foto en la que quieres borrar algo',
         ChangeBackgroundSource() =>
           'Elige tu foto y describe el lugar, o añade también una foto de referencia',
-        ModifyElementSource() => 'Elige la foto en la que quieres marcar el cambio',
         TryOnSource() => 'Elige una foto para probarte un look',
         RemoveBackgroundSource() => 'Elige la foto a la que quitamos el fondo',
         EnhanceQualitySource() => 'Elige la foto que quieres mejorar',
@@ -214,30 +207,12 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
         .showSnackBar(SnackBar(content: Text(message)));
   }
 
-  bool get _isMaskSource => switch (widget.source) {
-        RemoveElementSource(mode: RemoveTargetMode.mask) => true,
-        AddElementSource(mode: AddTargetMode.mask) => true,
-        ModifyElementSource() => true,
-        _ => false,
-      };
-
   void _onPhotoChosen({required Uint8List bytes, required String contentType}) {
     if (_isPromptSource) {
       setState(() {
         _selectedImages
             .add(_SelectedImage.bytes(bytes: bytes, contentType: contentType));
       });
-      return;
-    }
-    if (_isMaskSource) {
-      context.push(
-        AppRoutes.maskPainter,
-        extra: MaskPainterArgs.fromPhoto(
-          source: widget.source,
-          photoBytes: bytes,
-          contentType: contentType,
-        ),
-      );
       return;
     }
     if (widget.source is TryOnSource) {
@@ -276,16 +251,7 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
             .read(photoRepositoryProvider)
             .ensurePhotoSession(photo.id);
         if (!mounted) return;
-        if (_isMaskSource) {
-          context.push(
-            AppRoutes.maskPainter,
-            extra: MaskPainterArgs.fromSession(
-              source: widget.source,
-              photoSessionId: photoSessionId,
-              storagePath: photo.storagePath,
-            ),
-          );
-        } else if (widget.source is TryOnSource) {
+        if (widget.source is TryOnSource) {
           context.push(
             AppRoutes.garmentSelect,
             extra: GarmentSelectArgs.fromSession(
@@ -341,7 +307,7 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
     final GenerationSource source = switch (widget.source) {
       AddElementSource() => AddElementSource(prompt: prompt),
       ChangeBackgroundSource() => ChangeBackgroundSource(placeText: prompt),
-      _ => RemoveElementSource(mode: RemoveTargetMode.text, prompt: prompt),
+      _ => RemoveElementSource(prompt: prompt),
     };
     final primary = _selectedImages.first;
     final second = _selectedImages.length > 1 ? _selectedImages[1] : null;

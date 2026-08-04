@@ -16,7 +16,6 @@ class ProcessingArgs {
     this.secondPhotoBytes,
     this.secondContentType,
     this.secondPhotoSessionId,
-    this.maskBytes,
     this.garmentPicks,
   }) : photoSessionId = null;
 
@@ -26,7 +25,6 @@ class ProcessingArgs {
     this.secondPhotoBytes,
     this.secondContentType,
     this.secondPhotoSessionId,
-    this.maskBytes,
     this.garmentPicks,
   })  : photoBytes = null,
         contentType = null;
@@ -44,12 +42,6 @@ class ProcessingArgs {
   final Uint8List? secondPhotoBytes;
   final String? secondContentType;
   final String? secondPhotoSessionId;
-
-  // Máscara pintada por el usuario en MaskPainterScreen (PNG en
-  // blanco/negro): blanco = zona marcada, negro = zona a conservar. Presente
-  // cuando source es RemoveElementSource(mode: .mask), AddElementSource(mode:
-  // .mask) o ModifyElementSource -- el resto de modos lo ignoran.
-  final Uint8List? maskBytes;
 
   // Prendas del modo "Probar un look" (TryOnSource), 1-4 -- cada una es o
   // bien bytes recién elegidos (hace falta verify-photo en ProcessingScreen)

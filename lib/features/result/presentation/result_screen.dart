@@ -132,7 +132,6 @@ class _ResultScreenState extends ConsumerState<ResultScreen> {
       RemoveElementSource() => '"${source.prompt}"',
       ChangeBackgroundSource() =>
         source.placeText.isEmpty ? 'Cambiar fondo' : '"${source.placeText}"',
-      ModifyElementSource() => '"${source.prompt}"',
       TryOnSource() => 'Probar un look',
       RemoveBackgroundSource() => 'Eliminar fondo',
       EnhanceQualitySource() => 'Mejorar calidad',

@@ -3,10 +3,9 @@ import 'dart:typed_data';
 import 'generation_source.dart';
 
 /// Payload que PhotoSelect pasa a GarmentSelectScreen para TryOnSource, una
-/// vez resuelta la foto de la persona -- mismo patrón dual que
-/// MaskPainterArgs: `.fromPhoto` (bytes recién elegidos, GarmentSelectScreen
-/// no los verifica, eso lo hace ProcessingScreen) o `.fromSession` (foto ya
-/// verificada, sessionId listo).
+/// vez resuelta la foto de la persona: `.fromPhoto` (bytes recién elegidos,
+/// GarmentSelectScreen no los verifica, eso lo hace ProcessingScreen) o
+/// `.fromSession` (foto ya verificada, sessionId listo).
 class GarmentSelectArgs {
   const GarmentSelectArgs.fromPhoto({
     required this.source,

@@ -51,28 +51,6 @@ const TEXT_TO_IMAGE_MODELS: Record<string, string> = {
 const CHANGE_BACKGROUND_MODEL =
   Deno.env.get("REPLICATE_CHANGE_BACKGROUND_MODEL") ?? "bytedance/seedream-4.5";
 
-// Modo "Eliminar algo" sub-modo máscara (FASE 4): inpainting con máscara
-// pintada por el usuario. Confirmado por Gonzalo con una predicción real en
-// el playground de Replicate -- parámetros image/mask como data URI siguen
-// el mismo patrón que el resto de modelos en este archivo, no confirmados
-// aún contra la API (puede que necesite URLs firmadas si data URI da error).
-const FLUX_FILL_PRO_MODEL =
-  Deno.env.get("REPLICATE_FLUX_FILL_PRO_MODEL") ?? "black-forest-labs/flux-fill-pro";
-
-// Modo "Añadir algo" sub-modo máscara: cambio de modelo confirmado por
-// Gonzalo tras pruebas manuales en el playground (flux-fill-pro no daba buen
-// resultado para este caso con distintos guidance/prompt_strength). Fuente
-// verificada leyendo el predict.py real del modelo (repo
-// replicate/cog-stable-diffusion-inpainting en GitHub, no documentación de
-// terceros): NO expone width/height como parámetro -- hace
-// image.resize((512,512)) y mask.resize(image.size) fijos, sin conservar
-// aspect ratio (squash). El resultado 512x512 se reescala de vuelta al
-// tamaño exacto de la foto original en generate-add-mask/index.ts (ver
-// _shared/image.ts) para deshacer esa distorsión.
-const SD_INPAINTING_MODEL =
-  Deno.env.get("REPLICATE_SD_INPAINTING_MODEL") ??
-  "stability-ai/stable-diffusion-inpainting:95b7223104132402a9ae91cc677285bc5eb997834bd2349fa486f53910fd68b3";
-
 // Modo "Probar un look" (FASE 5): virtual try-on dedicado, no gpt-image-2.
 // Schema confirmado leyendo el openapi_schema real embebido en
 // replicate.com/prunaai/p-image-try-on/api/schema (no la documentación
@@ -364,99 +342,6 @@ export async function runChangeBackground(
   return toGenerationResult(prediction);
 }
 
-// Prompt fijo de inpainting de borrado: refuerza explícitamente que el
-// contenido marcado debe desaparecer como objeto completo (no perpetuarse
-// como patrón/textura/texto residual) y que el relleno es una continuación
-// del fondo circundante, no un objeto nuevo. Blanco = área a eliminar, negro
-// = área a conservar (convención estándar de flux-fill-pro confirmada por
-// Gonzalo en el playground). El texto opcional del usuario (pista sobre qué
-// debería haber en el fondo en su lugar) se concatena al final -- ver
-// runMaskRemoval.
-const MASK_REMOVAL_PROMPT =
-  "Elimina por completo el objeto marcado — no lo repitas, no continúes su " +
-  "patrón, textura o cualquier texto que contuviera. Rellena la zona " +
-  "únicamente con una continuación natural y coherente del fondo que la " +
-  "rodea (pared, superficie o entorno circundante), como si ese objeto " +
-  "nunca hubiera estado ahí.";
-
-/**
- * Modo "Eliminar algo" sub-modo máscara (flux-fill-pro): inpainting guiado
- * por la máscara que pintó el usuario. Convención de máscara: blanco = zona
- * a eliminar, negro = zona a conservar. [userPrompt] es opcional -- una pista
- * extra del usuario sobre qué debería haber en el fondo en su lugar,
- * concatenada al prompt fijo (ver MASK_REMOVAL_PROMPT).
- */
-export async function runMaskRemoval(
-  imageDataUri: string,
-  maskDataUri: string,
-  userPrompt?: string,
-): Promise<GenerationResult> {
-  const prompt = userPrompt && userPrompt.length > 0
-    ? `${MASK_REMOVAL_PROMPT} ${userPrompt}`
-    : MASK_REMOVAL_PROMPT;
-  const prediction = await runPrediction(FLUX_FILL_PRO_MODEL, {
-    image: imageDataUri,
-    mask: maskDataUri,
-    prompt,
-    output_format: "jpg",
-    output_quality: 90,
-  }, 60);
-  return toGenerationResult(prediction);
-}
-
-/**
- * Modo "Añadir algo" sub-modo máscara (stable-diffusion-inpainting): inpainting
- * guiado por la máscara que pintó el usuario, con el prompt construido
- * dinámicamente a partir de lo que el usuario describe que quiere añadir.
- * Misma convención de máscara que runMaskRemoval: blanco = zona marcada,
- * negro = zona a conservar. Este modelo fuerza 512x512 internamente (ver
- * SD_INPAINTING_MODEL arriba) -- el caller reescala el resultado de vuelta al
- * tamaño original.
- */
-export async function runMaskAddition(
-  imageDataUri: string,
-  maskDataUri: string,
-  userPrompt: string,
-): Promise<GenerationResult> {
-  const prompt =
-    `${userPrompt}, fotografía realista, como una foto de verdad tomada con ` +
-    "cámara, no una ilustración, no un dibujo, no arte vectorial, " +
-    "integrado de forma natural con la iluminación y el estilo del resto " +
-    "de la foto en la zona marcada.";
-  const prediction = await runPrediction(SD_INPAINTING_MODEL, {
-    image: imageDataUri,
-    mask: maskDataUri,
-    prompt,
-  }, 60);
-  return toGenerationResult(prediction);
-}
-
-/**
- * Modo "Modificar algo" (flux-fill-pro): inpainting guiado por la máscara que
- * pintó el usuario, con el prompt construido dinámicamente a partir de cómo
- * describe que quiere que cambie la zona marcada. A diferencia de
- * runMaskAddition, insiste en que el resto de la imagen quede intacto (aquí
- * se está modificando algo ya presente, no añadiendo algo nuevo). Misma
- * convención de máscara: blanco = zona marcada, negro = zona a conservar.
- */
-export async function runMaskModification(
-  imageDataUri: string,
-  maskDataUri: string,
-  userPrompt: string,
-): Promise<GenerationResult> {
-  const prompt =
-    "Modifica lo siguiente en la zona marcada, integrándolo de forma natural " +
-    "con la iluminación y estilo del resto de la foto: " + userPrompt +
-    ". El resto de la imagen debe permanecer exactamente igual.";
-  const prediction = await runPrediction(FLUX_FILL_PRO_MODEL, {
-    image: imageDataUri,
-    mask: maskDataUri,
-    prompt,
-    output_format: "jpg",
-    output_quality: 90,
-  }, 60);
-  return toGenerationResult(prediction);
-}
 
 /**
  * Modo "Probar un look": viste a la persona de `personImageDataUri` con las

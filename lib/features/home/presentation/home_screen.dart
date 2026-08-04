@@ -402,14 +402,6 @@ class _ModeCard extends StatelessWidget {
   final int staggerIndex;
 
   void _onTap(BuildContext context) {
-    // "Eliminar algo" tiene un paso previo de elegir sub-modo (por texto /
-    // marcando la zona) -- el resto de modos van directos a PhotoSelect.
-    // "Añade o modifica algo" ya no tiene ese paso: siempre es un flujo
-    // directo de texto (ver AddElementSource, mode por defecto .text).
-    if (mode.source is RemoveElementSource) {
-      context.push(AppRoutes.removeElementMode);
-      return;
-    }
     context.push(AppRoutes.photoSelect, extra: mode.source);
   }
 

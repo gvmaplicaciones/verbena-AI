@@ -16,6 +16,7 @@ import '../../../data/models/user_credits.dart';
 import '../../../data/repositories/account_repository.dart';
 import '../../../data/repositories/auth_repository.dart';
 import '../../../data/repositories/credits_repository.dart';
+import '../../../data/repositories/garment_repository.dart';
 import '../../../data/repositories/generations_repository.dart';
 import '../../../data/repositories/photo_repository.dart';
 import '../../../data/repositories/plans_repository.dart';
@@ -262,6 +263,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     setState(() => _busy = true);
     try {
       await ref.read(accountRepositoryProvider).deleteMyDataAndRestart();
+      // La cuenta anterior se borró y la sesión anónima nueva ya está activa,
+      // pero estos FutureProvider no son .autoDispose -- sin invalidar,
+      // siguen sirviendo desde caché los datos de la cuenta borrada (mismo
+      // patrón de invalidación que compras/favoritos/prendas en el resto de
+      // la app, ver paywall_screen._buy y gallery_grids.dart).
+      ref.invalidate(myGenerationsProvider);
+      ref.invalidate(persistedPhotosProvider);
+      ref.invalidate(myCreditsProvider);
+      ref.invalidate(garmentsProvider);
       if (!mounted) return;
       context.go(AppRoutes.onboarding);
     } catch (_) {

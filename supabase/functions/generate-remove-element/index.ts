@@ -143,6 +143,18 @@ Deno.serve(async (req) => {
         .upload(resultStoragePath, resultBytes, { contentType: resultContentType, upsert: true });
       if (uploadErr) throw uploadErr;
 
+      // Persistir result_storage_path en cuanto la subida a Storage tiene
+      // éxito -- si algo falla después (signed URL, etc.) la fila ya
+      // referencia el archivo real y los 3 mecanismos de limpieza (borrado
+      // de cuenta, borrado individual, cron) pueden encontrarlo. Incidente
+      // 2026-08-04: archivos huérfanos en Storage sin fila que los
+      // referenciara, por guardar result_storage_path solo al completar.
+      const { error: pathErr } = await admin
+        .from("generations")
+        .update({ result_storage_path: resultStoragePath })
+        .eq("id", generation.id);
+      if (pathErr) throw pathErr;
+
       const { data: signed, error: signedErr } = await admin.storage
         .from("generation-results")
         .createSignedUrl(resultStoragePath, RESULT_URL_TTL_SECONDS);

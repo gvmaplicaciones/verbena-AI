@@ -5,10 +5,7 @@ const onboardingCompletedPrefsKey = 'onboarding_completed';
 abstract final class AppRoutes {
   static const onboarding = '/onboarding';
   static const home = '/home';
-  static const removeElementMode = '/remove-element-mode';
   static const photoSelect = '/photo-select';
-  static const maskPainter = '/mask-painter';
-  static const maskPrompt = '/mask-prompt';
   static const garmentSelect = '/garment-select';
   static const wardrobe = '/profile/wardrobe';
   static const verifiedPhotos = '/profile/verified-photos';

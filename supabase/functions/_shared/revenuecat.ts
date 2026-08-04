@@ -230,11 +230,21 @@ async function purgePersistedPhotos(
  * pero el evento quedó "atascado" como procesado sin haber concedido nada,
  * perdiendo el cobro real para siempre. Confiar en el evento en vez de nuestro
  * propio caché elimina esta clase de bug de raíz.
+ *
+ * Bug detectado el 2026-08-04: la UI no reflejaba el pack recién comprado
+ * porque myCreditsProvider se invalidaba justo tras la compra, antes de que
+ * el webhook (asíncrono) hubiera concedido nada -- a diferencia de las
+ * suscripciones, cuyo reconcile() concede de forma síncrona contra la API en
+ * vivo de RevenueCat. reconcileSubscriberState() ahora hace lo mismo con
+ * non_subscriptions, así que esta función puede recibir la misma compra por
+ * dos caminos (reconcile síncrono + webhook asíncrono). `storeTransactionId`
+ * (ver extra_pack_grants) dedupea para que nunca se conceda dos veces.
  */
 export async function grantExtraPack(
   admin: ReturnType<typeof supabaseAdmin>,
   userId: string,
   productId: string,
+  storeTransactionId?: string | null,
 ): Promise<void> {
   const packId = resolveInternalProductId(productId);
   const { data: pack, error: packErr } = await admin
@@ -247,6 +257,23 @@ export async function grantExtraPack(
   if (!pack) {
     console.warn(`revenuecat: product_id '${productId}' no coincide con ningún pack extra conocido, se ignora`);
     return;
+  }
+
+  // Igual que el dedupe de revenuecat_events, pero por store_transaction_id
+  // en vez de por event.id del webhook -- reconcile no tiene un event.id
+  // (no hay webhook de por medio), así que necesita su propia clave de
+  // idempotencia basada en la compra real. Si no viene (llamada antigua o
+  // sin dato), se concede sin dedupe -- mismo comportamiento que antes.
+  if (storeTransactionId) {
+    const { error: dedupeErr } = await admin.from("extra_pack_grants").insert({
+      store_transaction_id: storeTransactionId,
+      user_id: userId,
+      pack_id: pack.pack_id,
+    });
+    if (dedupeErr) {
+      if (dedupeErr.code === "23505") return; // ya concedido por el otro camino
+      throw dedupeErr;
+    }
   }
 
   const { data: credits, error: creditsErr } = await admin
@@ -294,7 +321,45 @@ export async function reconcileSubscriberState(
   const body = await res.json();
   const entitlements = body.subscriber?.entitlements ?? {};
   const subscriptions = body.subscriber?.subscriptions ?? {};
+  const nonSubscriptions = body.subscriber?.non_subscriptions ?? {};
   const now = Date.now();
+
+  // Concede packs extra (consumibles, "non_subscriptions" en la API de
+  // RevenueCat) de forma síncrona, igual que ya se hace más abajo con la
+  // suscripción vía `entitlements`/`subscriptions` -- así la UI no depende
+  // de que el webhook NON_RENEWING_PURCHASE (asíncrono) llegue a tiempo tras
+  // la compra. grantExtraPack() dedupea por store_transaction_id contra
+  // extra_pack_grants, así que da igual si el webhook procesa la misma
+  // compra después: no se concede dos veces. Falla en silencio (solo log)
+  // por entrada -- una compra extra que no se pudo sincronizar aquí no debe
+  // impedir devolver el estado de la suscripción, y el webhook sigue siendo
+  // el camino que garantiza que se conceda tarde o temprano.
+  //
+  // `non_subscriptions` acumula TODAS las compras del pack que el usuario
+  // haya hecho jamás (nunca desaparecen de la lista) -- extra_pack_grants
+  // empieza vacía en este despliegue, así que sin este filtro de antigüedad
+  // la primera llamada a reconcile() de cada usuario con historial re-
+  // concedería TODAS sus compras pasadas ya otorgadas hace tiempo por el
+  // webhook. Solo se sincroniza aquí lo comprado hace poco (recién salido de
+  // purchasePackage()); lo más antiguo ya pasó por el webhook, que es quien
+  // sigue siendo la fuente de verdad para todo lo que no sea "ahora mismo".
+  const RECENT_PURCHASE_WINDOW_MS = 15 * 60 * 1000;
+  for (const productId of Object.keys(nonSubscriptions)) {
+    const purchases = nonSubscriptions[productId] as Array<{
+      store_transaction_id?: string;
+      purchase_date?: string;
+    }>;
+    for (const purchase of purchases) {
+      if (!purchase.store_transaction_id) continue;
+      const purchaseMs = purchase.purchase_date ? Date.parse(purchase.purchase_date) : NaN;
+      if (Number.isNaN(purchaseMs) || now - purchaseMs > RECENT_PURCHASE_WINDOW_MS) continue;
+      try {
+        await grantExtraPack(admin, userId, productId, purchase.store_transaction_id);
+      } catch (err) {
+        console.error(`revenuecat: fallo al sincronizar pack extra '${productId}' (${purchase.store_transaction_id}) en reconcile`, err);
+      }
+    }
+  }
 
   // Cualquier entitlement con expiración nula (vitalicio) o futura cuenta
   // como activo -- el proyecto solo espera un entitlement pero esto no

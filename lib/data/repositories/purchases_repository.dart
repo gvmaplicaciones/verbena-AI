@@ -74,6 +74,18 @@ final purchasesRepositoryProvider = Provider<PurchasesRepository>((ref) {
   return PurchasesRepository(ref.watch(supabaseClientProvider));
 });
 
-final offeringsProvider = FutureProvider<Offerings>((ref) {
+// autoDispose (no cache indefinido): paywall_screen y profile_screen enseñan
+// el precio real de la tienda leyendo esto -- con un FutureProvider normal,
+// la primera llamada (justo tras Purchases.configure() en el arranque frío,
+// compitiendo con que StoreKit resuelva el storefront/moneda real de la
+// cuenta) se quedaba cacheada para toda la sesión sin ninguna vía de
+// invalidación, así que un fetch inicial en dólares por una condición de
+// carrera se veía en pantalla el resto de la sesión aunque la compra real
+// (que sí usa un fetchOfferings() fresco, ver _buy() en paywall_screen) fuera
+// siempre correcta. Incidente 2026-08-04: precios en $ en cuentas con región
+// España confirmada. Con autoDispose se refetch cada vez que se entra a
+// cualquiera de esas dos pantallas, nunca se queda pegado al resultado del
+// arranque.
+final offeringsProvider = FutureProvider.autoDispose<Offerings>((ref) {
   return ref.watch(purchasesRepositoryProvider).fetchOfferings();
 });

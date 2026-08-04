@@ -33,6 +33,10 @@ interface RevenueCatEvent {
   app_user_id: string;
   product_id?: string;
   expiration_at_ms?: number | null;
+  // "Transaction identifier from the store" (docs de RevenueCat) -- mismo
+  // valor que store_transaction_id en GET /subscribers, usado para dedupear
+  // grantExtraPack() contra reconcileSubscriberState() (ver _shared/revenuecat.ts).
+  transaction_id?: string;
 }
 
 Deno.serve(async (req) => {
@@ -109,7 +113,7 @@ Deno.serve(async (req) => {
         await expireSubscription(admin, userId);
         break;
       case "NON_RENEWING_PURCHASE":
-        if (event.product_id) await grantExtraPack(admin, userId, event.product_id);
+        if (event.product_id) await grantExtraPack(admin, userId, event.product_id, event.transaction_id);
         break;
       default:
         // BILLING_ISSUE: RevenueCat manda CANCELLATION/EXPIRATION aparte si
