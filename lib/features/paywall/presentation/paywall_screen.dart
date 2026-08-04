@@ -95,18 +95,30 @@ class _PaywallScreenState extends ConsumerState<PaywallScreen> {
       await AnalyticsService.purchaseAttempted(planId: productId);
       final customerInfo = await repo.purchasePackage(package);
       // purchasePackage() puede resolver sin lanzar aunque la tienda haya
-      // dejado el pago en estado pendiente (p.ej. un método de pago que tarda
-      // en confirmarse) -- sin esta comprobación se navegaba a éxito con un
-      // entitlement todavía inactivo, sin recibo de Google Play ni registro
-      // en RevenueCat.
-      if (requireEntitlement &&
-          !customerInfo.entitlements.active
-              .containsKey(RevenueCatEntitlements.pro)) {
+      // dejado el pago en estado pendiente (p.ej. un método de pago que
+      // tarda en confirmarse), o aunque el SDK local de RevenueCat todavía
+      // no se haya enterado de un entitlement que el servidor ya tiene
+      // activo (visto en pruebas: caché local por detrás de la API real con
+      // renovaciones sandbox rápidas). reconcile() consulta el estado real
+      // contra la API de RevenueCat, no el caché local del SDK -- se llama
+      // siempre, pase lo que pase con customerInfo, para que
+      // myCreditsProvider quede al día igualmente: no tiene refresco
+      // automático (ver credits_repository.dart), así que sin esto el
+      // usuario se quedaba viendo su cuenta como no suscrita el resto de la
+      // sesión aunque el servidor ya hubiera confirmado la compra. Solo se
+      // retrasa la navegación de éxito (onSuccess/purchaseCompleted) si el
+      // SDK local aún no confirma el entitlement -- ahí sí puede ser un pago
+      // genuinamente pendiente, no solo un caché desactualizado.
+      final hasEntitlementLocally = customerInfo.entitlements.active
+          .containsKey(RevenueCatEntitlements.pro);
+      if (requireEntitlement && !hasEntitlementLocally) {
         _showProcessingSnack();
-        return;
       }
       await repo.reconcile();
       ref.invalidate(myCreditsProvider);
+      if (requireEntitlement && !hasEntitlementLocally) {
+        return;
+      }
       await AnalyticsService.purchaseCompleted(
         planId: productId,
         transactionIdentifier: repo.lastTransactionIdentifier,
