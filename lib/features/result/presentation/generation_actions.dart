@@ -58,6 +58,18 @@ class _GenerationShareActionsState extends State<GenerationShareActions> {
 
   Future<void> _sendWhatsapp() async {
     if (_busy) return;
+    // iOS exige un sharePositionOrigin no-cero (ancla del popover en iPad,
+    // pero la plataforma lo valida también en iPhone) -- sin esto,
+    // Share.shareXFiles lanza PlatformException("sharePositionOrigin:
+    // argument must be set... must be non-zero", visto en Sentry issue
+    // 138861111). Se calcula el rect del propio widget ANTES del await (usar
+    // context tras un await dispara use_build_context_synchronously y,
+    // además, este widget queda bloqueado por AbsorbPointer mientras _busy es
+    // true, así que su posición no cambia entre este punto y el share).
+    final box = context.findRenderObject() as RenderBox?;
+    final sharePositionOrigin = box != null && box.hasSize
+        ? box.localToGlobal(Offset.zero) & box.size
+        : null;
     setState(() => _busy = true);
     try {
       final (bytes, extension) = await _downloadResultBytesWithExtension();
@@ -67,6 +79,7 @@ class _GenerationShareActionsState extends State<GenerationShareActions> {
       await Share.shareXFiles(
         [XFile(tempFile.path)],
         text: 'Mira lo que me he hecho con VerbenAI 👀',
+        sharePositionOrigin: sharePositionOrigin,
       );
     } catch (e, st) {
       // Reportado: en iOS el botón "no hace nada" -- GUARDAR (misma descarga
