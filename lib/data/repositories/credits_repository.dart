@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/user_credits.dart';
@@ -11,8 +14,18 @@ class CreditsRepository {
 
   Future<UserCredits> fetchMyCredits() async {
     final userId = _client.auth.currentUser!.id;
-    final row = await _client.from('user_credits').select().eq('user_id', userId).single();
-    return UserCredits.fromJson(row);
+    try {
+      final row = await _client.from('user_credits').select().eq('user_id', userId).single();
+      return UserCredits.fromJson(row);
+    } catch (e, st) {
+      // Sin esto, un fallo real (RLS, red, fila inexistente) llegaba a la UI
+      // como AsyncError y algunos consumidores lo confundían en silencio con
+      // "no suscrito" (ver _ProBadge/_CreditsCard en home_screen.dart) -- así
+      // queda en Sentry, distinguible de un "no tiene suscripción" legítimo.
+      unawaited(Sentry.captureException(e,
+          stackTrace: st, hint: Hint.withMap({'stage': 'fetchMyCredits'})));
+      rethrow;
+    }
   }
 
   // El descuento/reset de créditos NUNCA se hace desde el cliente: lo hacen

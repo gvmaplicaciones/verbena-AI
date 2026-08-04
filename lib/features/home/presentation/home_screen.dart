@@ -131,8 +131,26 @@ class _ProBadge extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final hasActiveAccess =
-        ref.watch(myCreditsProvider).valueOrNull?.hasActiveAccess ?? false;
+    final creditsAsync = ref.watch(myCreditsProvider);
+    // Un error real (RLS, red...) no debe leerse como "no suscrito" -- antes
+    // valueOrNull caía a null y la píldora mostraba "PRO" igual que un
+    // usuario sin suscripción, sin ninguna pista de que la consulta había
+    // fallado. Aquí sí se distingue con una píldora de reintento aparte.
+    if (creditsAsync.hasError) {
+      return GestureDetector(
+        onTap: () => ref.invalidate(myCreditsProvider),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          decoration: BoxDecoration(
+            color: VerbenaColors.terracotta,
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Icon(Icons.refresh_rounded,
+              size: 15, color: VerbenaColors.background),
+        ),
+      );
+    }
+    final hasActiveAccess = creditsAsync.valueOrNull?.hasActiveAccess ?? false;
     if (hasActiveAccess) return const SizedBox.shrink();
     return GestureDetector(
       onTap: () => context.push(AppRoutes.paywall, extra: 'home_badge'),
@@ -165,7 +183,36 @@ class _CreditsCard extends ConsumerWidget {
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
       child: creditsAsync.when(
         loading: () => const SizedBox(height: 78),
-        error: (err, st) => const SizedBox.shrink(),
+        // Antes esto desaparecía sin más (SizedBox.shrink) -- un fallo real
+        // (RLS, red...) quedaba indistinguible de "no tiene suscripción" para
+        // el usuario y para nosotros sin mirar el backend a mano. El error ya
+        // se captura en Sentry desde CreditsRepository.fetchMyCredits.
+        error: (err, st) => GestureDetector(
+          onTap: () => ref.invalidate(myCreditsProvider),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              color: VerbenaColors.terracotta,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.refresh_rounded, color: VerbenaColors.background),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'No hemos podido cargar tu plan — toca para reintentar',
+                    style: VerbenaText.body(
+                        size: 13,
+                        color: VerbenaColors.background,
+                        weight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
         data: (credits) {
           return Stack(
             clipBehavior: Clip.none,

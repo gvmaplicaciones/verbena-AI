@@ -128,6 +128,16 @@ class _PaywallScreenState extends ConsumerState<PaywallScreen> {
     } on PlatformException catch (e, st) {
       final code = PurchasesErrorHelper.getErrorCode(e);
       if (code == PurchasesErrorCode.purchaseCancelledError) {
+        // Caso normal y esperado (el usuario cerró la hoja de pago) -- breadcrumb
+        // informativo, no un error, para poder diferenciar en Sentry "canceló a
+        // propósito" de "el flujo se cortó por otro motivo" cuando algo parezca
+        // fallar más adelante (antes esto volvía sin dejar ningún rastro).
+        unawaited(Sentry.addBreadcrumb(Breadcrumb(
+          category: 'purchase',
+          message: 'usuario canceló la compra',
+          data: {'productId': productId},
+          level: SentryLevel.info,
+        )));
         return;
       }
       if (code == PurchasesErrorCode.paymentPendingError) {
