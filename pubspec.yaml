@@ -1,7 +1,7 @@
 name: verbenai
 description: "VerbenAI — genera fotos con IA en escenas predefinidas o por texto libre."
 publish_to: "none"
-version: 0.1.0+38
+version: 0.1.0+39
 
 environment:
   sdk: ^3.6.0

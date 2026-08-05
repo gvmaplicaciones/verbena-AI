@@ -1,12 +1,22 @@
 # Rework: inicio de sesión y suscripciones en iOS — diagnóstico y plan
 
-> **Estado (2026-08-05)**: Fases A y B implementadas en `main` (commit
-> `be40f88`) — `lib/services/purchases_auth_sync.dart` nuevo, `main.dart`,
-> `account_gate_screen.dart`, `auth_repository.dart` y `profile_screen.dart`
-> actualizados. Queda pendiente solo la Fase C (checklists de configuración
-> en los dashboards de Supabase y RevenueCat — B.4, B.5, C.1, C.2 más abajo),
-> que no requiere código y no se puede hacer desde aquí. La matriz de pruebas
-> de la sección 5 tampoco se ha ejecutado todavía en dispositivo real.
+> **Estado (2026-08-05)**: Fases A, B y C completas. Código de las Fases A y B
+> en `main` (commit `be40f88`) — `lib/services/purchases_auth_sync.dart`
+> nuevo, `main.dart`, `account_gate_screen.dart`, `auth_repository.dart` y
+> `profile_screen.dart` actualizados. Checklists de configuración (Fase C)
+> verificados en los dashboards de Supabase y RevenueCat:
+> - B.4/B.5 (Supabase → Authentication → Providers): Google tiene los dos
+>   client IDs (web e iOS) y Apple tiene el bundle ID `com.verbenai.verbenai`
+>   — todo correcto.
+> - C.1 (RevenueCat → Project Settings → General → "Transferring purchases
+>   seen on multiple App User IDs"): `Transfer to new App User ID`, el
+>   default recomendado.
+> - C.2 (RevenueCat → Product Catalog → Entitlements): los productos de iOS
+>   (Mensual, Semanal, Generaciones Extra) están adjuntos al entitlement
+>   igual que los de Android.
+>
+> Queda pendiente solo la matriz de pruebas de la sección 5 en dispositivo
+> real (iOS y, para los casos 2/3/6/7, también Android).
 
 ## TL;DR
 
