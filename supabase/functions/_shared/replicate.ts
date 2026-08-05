@@ -84,6 +84,14 @@ const ENHANCE_QUALITY_MODEL =
   Deno.env.get("REPLICATE_ENHANCE_QUALITY_MODEL") ??
   "tencentarc/gfpgan:0fbacf7afc6c144e5be9767cff80f25aff23e52b0708f17e20f9879b2f21516c";
 
+// Moderación de TEXTO antes de gastar en generación de imagen -- rechaza
+// prompts libres que pidan incluir a una persona real/famosa/identificable
+// ANTES de llamar a gpt-image-2/seedream (ver runTextModerationCheck más
+// abajo). Coste ínfimo (~$0,0002/llamada) comparado con una generación de
+// imagen descartada.
+const TEXT_MODERATION_MODEL =
+  Deno.env.get("REPLICATE_TEXT_MODERATION_MODEL") ?? "google/gemini-3-flash";
+
 export interface ContentFilterResult {
   passed: boolean;
   raw: unknown;
@@ -147,6 +155,54 @@ export async function runContentFilter(
 export async function runNsfwCheck(imageDataUri: string): Promise<boolean> {
   const prediction = await runPrediction(NSFW_MODEL, { image: imageDataUri }, 30);
   return prediction.output === "nsfw";
+}
+
+const TEXT_MODERATION_SYSTEM_INSTRUCTION =
+  "Eres un clasificador de moderación de texto. Se te da una instrucción " +
+  "escrita por un usuario para editar una foto con IA. Responde ÚNICAMENTE " +
+  "con un JSON de una línea, sin texto adicional ni markdown: " +
+  '{"is_real_person": true|false}. is_real_person es true si el texto pide ' +
+  "generar, añadir, convertir a, o incluir de cualquier forma a una persona " +
+  "real, famosa, pública o identificable por nombre propio (actor, cantante, " +
+  "político, influencer, personaje histórico, etc), incluso mencionada de " +
+  "forma indirecta o con apodo reconocible. is_real_person es false si el " +
+  "texto no menciona a ninguna persona real identificable (objetos, ropa, " +
+  "lugares, fondos, personas genéricas o ficticias sin nombre propio real).";
+
+/**
+ * Moderación de texto libre (google/gemini-3-flash) para los 3 modos con
+ * prompt libre (Añadir algo, Eliminar algo, Cambiar fondo) -- se llama ANTES
+ * de deductCredit/runImageEdit/runChangeBackground para no gastar crédito ni
+ * generación de imagen en un prompt que ya se sabe que se va a rechazar.
+ * Confirmado con predicciones reales (ver memoria de proyecto, 2026-08-05):
+ * input.system_instruction (no "system_prompt") + input.prompt, output es un
+ * array de strings a concatenar (x-cog-array-display "concatenate" en el
+ * schema real de Replicate, no un string plano como el resto de modelos de
+ * este archivo). thinking_level "none" -- es una clasificación simple, no
+ * hace falta razonamiento y encarece/ralentiza la llamada sin mejorar el
+ * resultado en las pruebas hechas. Si la salida no es el JSON esperado
+ * (fallo de parseo, no de red -- los fallos de red se propagan igual que en
+ * runNsfwCheck, no se capturan aquí), se falla cerrado (bloquea la
+ * generación) porque esta comprobación cubre la línea no negociable del
+ * producto (nunca generar personas reales identificables), a diferencia de
+ * otros fallos donde fail-open sería aceptable.
+ */
+export async function runTextModerationCheck(promptText: string): Promise<boolean> {
+  const prediction = await runPrediction(TEXT_MODERATION_MODEL, {
+    prompt: promptText,
+    system_instruction: TEXT_MODERATION_SYSTEM_INSTRUCTION,
+    thinking_level: "none",
+    max_output_tokens: 200,
+  }, 30);
+
+  const output = prediction.output;
+  const text = Array.isArray(output) ? output.join("") : String(output ?? "");
+  const match = text.match(/"is_real_person"\s*:\s*(true|false)/i);
+  if (!match) {
+    console.error("runTextModerationCheck: salida inesperada del modelo, fallando cerrado", text);
+    return true;
+  }
+  return match[1].toLowerCase() === "true";
 }
 
 /** DEPRECATED, ver nota junto a FACE_SWAP_MODEL -- sustituida por runCatalogFaceSwap. */

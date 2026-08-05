@@ -122,8 +122,10 @@ class _GarmentSelectScreenState extends ConsumerState<GarmentSelectScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     if (_picks.isEmpty) return;
+    final canProceed = await ensureRegisteredForGeneration(context, ref);
+    if (!canProceed || !mounted) return;
     final args = widget.args;
     final processingArgs = args.photoSessionId != null
         ? ProcessingArgs.fromSession(

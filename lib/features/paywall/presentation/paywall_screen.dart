@@ -76,9 +76,11 @@ class _PaywallScreenState extends ConsumerState<PaywallScreen> {
     bool requireEntitlement = false,
   }) async {
     if (_busy) return;
-    // Registro solo obligatorio en el momento de pagar (no para la foto
-    // gratis) -- así se puede recuperar la suscripción si se reinstala la
-    // app o se cambia de móvil (ver account_gate_screen.dart).
+    // Registro obligatorio antes de cualquier generación real, incluida la
+    // gratis (decisión de producto 2026-08-05, ver
+    // ensureRegisteredForGeneration en core/utils/navigation.dart) -- así se
+    // puede recuperar la suscripción o el progreso si se reinstala la app o
+    // se cambia de móvil (ver account_gate_screen.dart).
     if (ref.read(authRepositoryProvider).isAnonymous) {
       final canProceed = await context.push<bool>(AppRoutes.accountGate);
       if (canProceed != true || !mounted) return;

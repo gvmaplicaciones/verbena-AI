@@ -25,7 +25,7 @@
 
 import { corsHeaders } from "../_shared/cors.ts";
 import { getAuthedUser, supabaseAdmin } from "../_shared/supabase.ts";
-import { runImageEdit, runNsfwCheck } from "../_shared/replicate.ts";
+import { runImageEdit, runNsfwCheck, runTextModerationCheck } from "../_shared/replicate.ts";
 import { runCelebrityCheck } from "../_shared/aws.ts";
 import { encodeBase64 } from "../_shared/bytes.ts";
 import { downloadAsDataUri, resolveActiveSession } from "../_shared/storage.ts";
@@ -98,6 +98,21 @@ Deno.serve(async (req) => {
       .select("id")
       .single();
     if (genErr) throw genErr;
+
+    // Moderación de texto ANTES de gastar en descarga/generación de imagen --
+    // rechaza aquí si el prompt pide incluir a una persona real/famosa/
+    // identificable, sin haber tocado aún el crédito del usuario.
+    if (await runTextModerationCheck(promptText)) {
+      await admin
+        .from("generations")
+        .update({ status: "rejected", completed_at: new Date().toISOString() })
+        .eq("id", generation.id);
+      return json({
+        status: "rejected",
+        generationId: generation.id,
+        reason: "No se pueden generar imágenes de personas reales, famosas o identificables.",
+      });
+    }
 
     const photoDataUri = await downloadAsDataUri(admin, "verified-photos", resolvedPhoto.storagePath);
     const referenceImageDataUris = [photoDataUri];

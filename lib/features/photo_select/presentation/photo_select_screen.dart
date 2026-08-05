@@ -229,8 +229,10 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
     _goToProcessing(bytes: bytes, contentType: contentType);
   }
 
-  void _goToProcessing(
-      {required Uint8List bytes, required String contentType}) {
+  Future<void> _goToProcessing(
+      {required Uint8List bytes, required String contentType}) async {
+    final canProceed = await ensureRegisteredForGeneration(context, ref);
+    if (!canProceed || !mounted) return;
     context.push(
       AppRoutes.processing,
       extra: ProcessingArgs.fromPhoto(
@@ -260,6 +262,8 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
             ),
           );
         } else {
+          final canProceed = await ensureRegisteredForGeneration(context, ref);
+          if (!canProceed || !mounted) return;
           context.push(
             AppRoutes.processing,
             extra: ProcessingArgs.fromSession(
@@ -301,9 +305,11 @@ class _PhotoSelectScreenState extends ConsumerState<PhotoSelectScreen> {
     }
   }
 
-  void _submitPrompt() {
+  Future<void> _submitPrompt() async {
     final prompt = _promptController.text.trim();
     if (!_canSubmitPrompt) return;
+    final canProceed = await ensureRegisteredForGeneration(context, ref);
+    if (!canProceed || !mounted) return;
     final GenerationSource source = switch (widget.source) {
       AddElementSource() => AddElementSource(prompt: prompt),
       ChangeBackgroundSource() => ChangeBackgroundSource(placeText: prompt),

@@ -32,6 +32,23 @@ class _DebugHttpOverrides extends HttpOverrides {
   }
 }
 
+/// Traza en Sentry el user_id real de Supabase en vez del installation ID
+/// que el SDK asigna por defecto -- sin esto, cada issue nuevo exige
+/// investigar a ciegas qué usuario lo disparó (nos ha costado horas varias
+/// veces). Se sincroniza al arrancar y en cada cambio de sesión posterior
+/// (login/link con Google-Apple-email, entrada/salida de modo admin,
+/// signOut) para que el vínculo nunca quede desactualizado.
+void _bindSentryUserToAuthSession(GoTrueClient auth) {
+  void sync(User? user) {
+    Sentry.configureScope((scope) {
+      scope.setUser(user == null ? null : SentryUser(id: user.id));
+    });
+  }
+
+  sync(auth.currentUser);
+  auth.onAuthStateChange.listen((data) => sync(data.session?.user));
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -96,9 +113,12 @@ Future<void> main() async {
       options.dsn = Env.sentryDsn;
       options.tracesSampleRate = 1.0;
     },
-    appRunner: () => runApp(ProviderScope(
-      overrides: [initialLocationProvider.overrideWithValue(initialLocation)],
-      child: const VerbenaApp(),
-    )),
+    appRunner: () {
+      _bindSentryUserToAuthSession(auth);
+      runApp(ProviderScope(
+        overrides: [initialLocationProvider.overrideWithValue(initialLocation)],
+        child: const VerbenaApp(),
+      ));
+    },
   );
 }
