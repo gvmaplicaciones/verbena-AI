@@ -42,7 +42,7 @@ export async function grantActiveSubscription(
     .maybeSingle();
   if (planErr) throw planErr;
   if (!plan) {
-    console.warn(`revenuecat: product_id '${productId}' no coincide con ningún plan conocido, se ignora`);
+    console.warn(`revenuecat: product_id '${productId}' no coincide con ningún plan conocido, se ignora (user=${userId})`);
     return;
   }
 
@@ -76,11 +76,36 @@ export async function grantActiveSubscription(
   });
 }
 
-/** UNCANCELLATION: se reactiva el auto-renovable antes de expirar -- no es un cobro nuevo, no toca créditos. */
+/**
+ * UNCANCELLATION: se reactiva el auto-renovable antes de expirar -- no es un
+ * cobro nuevo, no toca créditos. Asume que hubo un cobro real anterior que ya
+ * concedió el plan.
+ *
+ * Bug detectado el 2026-08-05: esa asunción no siempre es cierta -- RevenueCat
+ * puede mandar CANCELLATION seguido de UNCANCELLATION como la PRIMERA
+ * notificación real de una suscripción (visto en sandbox al reutilizar una
+ * transacción ya conocida bajo otro app_user_id, justo antes de un TRANSFER).
+ * Si nunca hubo un plan concedido (active_plan_id null) se trata como alta
+ * real -- si no, un usuario de pago se queda con el status "active" pero sin
+ * ninguno de sus créditos.
+ */
 export async function reactivateSubscription(
   admin: ReturnType<typeof supabaseAdmin>,
   userId: string,
+  productId?: string | null,
 ): Promise<void> {
+  const { data: credits, error: creditsErr } = await admin
+    .from("user_credits")
+    .select("active_plan_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (creditsErr) throw creditsErr;
+
+  if (!credits?.active_plan_id && productId) {
+    await grantActiveSubscription(admin, userId, productId);
+    return;
+  }
+
   await admin
     .from("user_credits")
     .update({ subscription_status: "active", expires_at: null, updated_at: new Date().toISOString() })
@@ -456,7 +481,7 @@ export async function reconcileSubscriberState(
     if (isNewBillingPeriod || isPlanChange) {
       await grantActiveSubscription(admin, userId, active.product_identifier);
     } else if (credits.subscription_status !== "active") {
-      await reactivateSubscription(admin, userId);
+      await reactivateSubscription(admin, userId, active.product_identifier);
     }
     return { subscriptionStatus: "active", activePlanId: planId };
   }

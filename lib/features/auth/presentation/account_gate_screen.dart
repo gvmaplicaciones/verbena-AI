@@ -79,8 +79,11 @@ class _AccountGateScreenState extends ConsumerState<AccountGateScreen> {
 
   /// Tras un signIn/signInWithGoogle que trae un user_id distinto al de la
   /// sesión anónima previa: reengancha RevenueCat a la identidad real y
-  /// refresca créditos, igual que hace _submitSignIn con email.
-  Future<void> _reconcileAfterSignIn() async {
+  /// refresca créditos, igual que hace _submitSignIn con email. Devuelve si
+  /// la cuenta recuperada quedó con acceso de suscripción activo --
+  /// úsalo para avisar si la compra real puede estar en otra cuenta de este
+  /// mismo dispositivo (ver _confirmSignInIfActiveSubscription).
+  Future<bool> _reconcileAfterSignIn() async {
     final newUserId = Supabase.instance.client.auth.currentUser?.id;
     if (newUserId != null) {
       await Purchases.logIn(newUserId);
@@ -96,9 +99,80 @@ class _AccountGateScreenState extends ConsumerState<AccountGateScreen> {
       } catch (_) {}
     }
     ref.invalidate(myCreditsProvider);
+    try {
+      final credits = await ref.read(myCreditsProvider.future);
+      return credits.hasActiveAccess;
+    } catch (_) {
+      // No penalizar con el aviso de "sin suscripción" si ni siquiera hemos
+      // podido comprobarlo -- mejor un falso negativo que alarmar sin base.
+      return true;
+    }
+  }
+
+  /// Una compra de Apple/Google (recibo de la tienda) solo puede pertenecer
+  /// a un app_user_id de RevenueCat a la vez -- si la sesión actual ya tiene
+  /// suscripción activa y el usuario va a "Iniciar sesión" (cambia a un
+  /// user_id distinto, ver comentario de clase), esa suscripción se moverá a
+  /// la cuenta nueva y esta la perderá. Confirmado en producción el
+  /// 2026-08-05: un usuario probando con dos cuentas en el mismo dispositivo
+  /// vio la suscripción rebotar de una a otra sin entender por qué.
+  Future<bool> _confirmSignInIfActiveSubscription() async {
+    final credits = ref.read(myCreditsProvider).valueOrNull;
+    if (credits == null || !credits.hasActiveAccess) return true;
+    if (!mounted) return false;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: VerbenaColors.card,
+        title: Text('Tienes una suscripción activa aquí', style: VerbenaText.display(size: 17)),
+        content: Text(
+          'Si inicias sesión con otra cuenta, tu suscripción de este dispositivo pasará a esa cuenta y la perderás aquí. ¿Seguro que quieres continuar?',
+          style: VerbenaText.body(size: 13.5, color: VerbenaColors.textMuted),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text('Cancelar', style: VerbenaText.body(size: 13.5, weight: FontWeight.w600)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text('Continuar',
+                style: VerbenaText.body(size: 13.5, weight: FontWeight.w700, color: VerbenaColors.terracotta)),
+          ),
+        ],
+      ),
+    );
+    return confirmed ?? false;
+  }
+
+  /// Se muestra tras recuperar sesión si la cuenta resultante no tiene
+  /// suscripción activa -- guía directa para el caso de "compré pero no me
+  /// aparece" cuando la compra real está en otra cuenta usada en este mismo
+  /// dispositivo (ver _confirmSignInIfActiveSubscription, mismo problema al
+  /// revés).
+  void _showNoActiveSubscriptionNotice() {
+    if (!mounted) return;
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: VerbenaColors.card,
+        title: Text('Sesión recuperada', style: VerbenaText.display(size: 17)),
+        content: Text(
+          'Esta cuenta no tiene ninguna suscripción activa. Si ya pagaste desde este dispositivo, es posible que la compra esté en otra cuenta que hayas usado aquí -- cierra sesión y prueba a iniciar sesión con esa cuenta.',
+          style: VerbenaText.body(size: 13.5, color: VerbenaColors.textMuted),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text('Entendido', style: VerbenaText.body(size: 13.5, weight: FontWeight.w700, color: VerbenaColors.teal)),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _continueWithGoogle() async {
+    if (_signInMode && !await _confirmSignInIfActiveSubscription()) return;
     setState(() {
       _busy = true;
       _error = null;
@@ -106,9 +180,13 @@ class _AccountGateScreenState extends ConsumerState<AccountGateScreen> {
     try {
       if (_signInMode) {
         await ref.read(authRepositoryProvider).signInWithGoogle();
-        await _reconcileAfterSignIn();
+        final hasSubscription = await _reconcileAfterSignIn();
         if (!mounted) return;
-        _showSnack('Sesión recuperada.');
+        if (hasSubscription) {
+          _showSnack('Sesión recuperada.');
+        } else {
+          _showNoActiveSubscriptionNotice();
+        }
         context.safePop(false);
       } else {
         await ref.read(authRepositoryProvider).linkGoogle();
@@ -144,6 +222,7 @@ class _AccountGateScreenState extends ConsumerState<AccountGateScreen> {
   /// Apple, que a su vez solo se muestra en iOS (ver build()) -- en Android,
   /// Apple no exige ofrecer este inicio de sesión.
   Future<void> _continueWithApple() async {
+    if (_signInMode && !await _confirmSignInIfActiveSubscription()) return;
     setState(() {
       _busy = true;
       _error = null;
@@ -151,9 +230,13 @@ class _AccountGateScreenState extends ConsumerState<AccountGateScreen> {
     try {
       if (_signInMode) {
         await ref.read(authRepositoryProvider).signInWithApple();
-        await _reconcileAfterSignIn();
+        final hasSubscription = await _reconcileAfterSignIn();
         if (!mounted) return;
-        _showSnack('Sesión recuperada.');
+        if (hasSubscription) {
+          _showSnack('Sesión recuperada.');
+        } else {
+          _showNoActiveSubscriptionNotice();
+        }
         context.safePop(false);
       } else {
         await ref.read(authRepositoryProvider).linkApple();
@@ -261,6 +344,7 @@ class _AccountGateScreenState extends ConsumerState<AccountGateScreen> {
       setState(() => _error = 'Rellena email y contraseña.');
       return;
     }
+    if (!await _confirmSignInIfActiveSubscription()) return;
 
     setState(() {
       _busy = true;
@@ -268,9 +352,13 @@ class _AccountGateScreenState extends ConsumerState<AccountGateScreen> {
     });
     try {
       await ref.read(authRepositoryProvider).signInExisting(email: email, password: password);
-      await _reconcileAfterSignIn();
+      final hasSubscription = await _reconcileAfterSignIn();
       if (!mounted) return;
-      _showSnack('Sesión recuperada.');
+      if (hasSubscription) {
+        _showSnack('Sesión recuperada.');
+      } else {
+        _showNoActiveSubscriptionNotice();
+      }
       context.safePop(false);
     } on AuthException catch (e, st) {
       developer.log('signIn failed (AuthException): ${e.message} statusCode=${e.statusCode} code=${e.code}',

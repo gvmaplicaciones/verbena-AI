@@ -31,7 +31,8 @@ const EXPECTED_AUTH = Deno.env.get("REVENUECAT_WEBHOOK_AUTHORIZATION")!;
 interface RevenueCatEvent {
   id: string;
   type: string;
-  app_user_id: string;
+  // Ausente en TRANSFER (usa transferred_from/transferred_to en su lugar).
+  app_user_id?: string;
   product_id?: string;
   expiration_at_ms?: number | null;
   // "Transaction identifier from the store" (docs de RevenueCat) -- mismo
@@ -56,14 +57,27 @@ Deno.serve(async (req) => {
     return json({ error: "unauthorized" }, 401);
   }
 
+  const rawBody = await req.text();
   let payload: { event?: RevenueCatEvent };
   try {
-    payload = await req.json();
+    payload = JSON.parse(rawBody);
   } catch {
+    console.error("revenuecat-webhook: invalid JSON body", rawBody);
     return json({ error: "invalid JSON body" }, 400);
   }
   const event = payload.event;
-  if (!event?.id || !event.type || !event.app_user_id) {
+  // TRANSFER no trae app_user_id -- usa transferred_from/transferred_to en su
+  // lugar (ver interfaz RevenueCatEvent). Cualquier otro tipo de evento sí lo
+  // exige. Bug detectado el 2026-08-05: la validación exigía app_user_id
+  // incondicionalmente, así que todo TRANSFER real llegaba aquí y se
+  // rechazaba con 400 en bucle (RevenueCat reintentando sin parar) sin que
+  // transferSubscription() llegase nunca a ejecutarse.
+  if (!event?.id || !event.type) {
+    console.error("revenuecat-webhook: malformed event", rawBody);
+    return json({ error: "malformed event" }, 400);
+  }
+  if (event.type !== "TRANSFER" && !event.app_user_id) {
+    console.error("revenuecat-webhook: malformed event", rawBody);
     return json({ error: "malformed event" }, 400);
   }
 
@@ -71,8 +85,10 @@ Deno.serve(async (req) => {
   // todavía el app_user_id real del usuario. No hay fila en user_credits para
   // este ID, así que cualquier intento de procesarlo revienta con 500 y causa
   // reintentos infinitos. Se responde 200 para que RevenueCat no reintente.
+  // No aplica a TRANSFER: no tiene app_user_id, y transferSubscription() ya
+  // filtra IDs no-UUID uno a uno dentro de transferred_from/transferred_to.
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (!UUID_RE.test(event.app_user_id)) {
+  if (event.type !== "TRANSFER" && !UUID_RE.test(event.app_user_id)) {
     console.warn(`revenuecat-webhook: app_user_id no es UUID ('${event.app_user_id}'), evento ${event.id} ignorado`);
     return json({ status: "skipped", reason: "non_uuid_user_id" });
   }
@@ -83,12 +99,17 @@ Deno.serve(async (req) => {
   // que un mismo event.id puede llegar más de una vez. El registro se inserta
   // ANTES del procesamiento para evitar dobles concurrentes, pero se ELIMINA
   // si el procesamiento falla — así el siguiente reintento puede procesarlo.
+  // app_user_id es NOT NULL en la tabla; TRANSFER no trae uno propio, así que
+  // se usa el primer destino (o el primer origen si no hay destino) solo para
+  // dejar rastro legible en el registro de dedupe, no se usa para lógica.
+  const dedupeAppUserId = event.app_user_id ??
+    event.transferred_to?.[0] ?? event.transferred_from?.[0] ?? "unknown";
   const { error: dedupeErr } = await admin
     .from("revenuecat_events")
     .insert({
       id: event.id,
       event_type: event.type,
-      app_user_id: event.app_user_id,
+      app_user_id: dedupeAppUserId,
       product_id: event.product_id ?? null,
     });
   if (dedupeErr) {
@@ -99,7 +120,8 @@ Deno.serve(async (req) => {
     return json({ error: "internal error" }, 500);
   }
 
-  const userId = event.app_user_id;
+  // Validado más arriba: presente para todo tipo salvo TRANSFER, que no lo usa.
+  const userId = event.app_user_id!;
 
   try {
     switch (event.type) {
@@ -109,7 +131,7 @@ Deno.serve(async (req) => {
         if (event.product_id) await grantActiveSubscription(admin, userId, event.product_id);
         break;
       case "UNCANCELLATION":
-        await reactivateSubscription(admin, userId);
+        await reactivateSubscription(admin, userId, event.product_id);
         break;
       case "CANCELLATION":
         await cancelSubscription(admin, userId, event.expiration_at_ms);
