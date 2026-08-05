@@ -1,7 +1,10 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -13,6 +16,7 @@ import '../../../core/utils/date_format.dart';
 import '../../../core/utils/navigation.dart';
 import '../../../core/widgets/confetti_background.dart';
 import '../../../data/models/user_credits.dart';
+import '../../../data/providers/supabase_provider.dart';
 import '../../../data/repositories/account_repository.dart';
 import '../../../data/repositories/auth_repository.dart';
 import '../../../data/repositories/credits_repository.dart';
@@ -184,6 +188,41 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         ],
       ],
     );
+  }
+
+  /// Abre el cliente de correo con contexto técnico pre-rellenado (versión,
+  /// plataforma, UID) para poder cruzarlo con Sentry sin que el usuario
+  /// tenga que saber nada técnico. El UID es exactamente el mismo que
+  /// Sentry.setUser() (ver _bindSentryUserToAuthSession en main.dart) --
+  /// mismo Supabase.instance.client.auth.currentUser, vía supabaseClientProvider.
+  Future<void> _contactSupport() async {
+    final packageInfo = await PackageInfo.fromPlatform();
+    final platform =
+        '${Platform.isIOS ? 'iOS' : 'Android'} ${Platform.operatingSystemVersion}';
+    final userId =
+        ref.read(supabaseClientProvider).auth.currentUser?.id ?? 'desconocido';
+
+    final body = '''
+Describe aquí el problema que has encontrado:
+
+
+---
+No borres lo siguiente, nos ayuda a solucionarlo más rápido:
+Versión: ${packageInfo.version} (${packageInfo.buildNumber})
+Plataforma: $platform
+ID de usuario: $userId''';
+
+    final uri = Uri(
+      scheme: 'mailto',
+      path: 'gvm.aplicaciones@gmail.com',
+      queryParameters: {
+        'subject': 'VerbenAI - Reporte de problema',
+        'body': body,
+      },
+    );
+    if (!await launchUrl(uri)) {
+      _showSnack('No hemos podido abrir tu cliente de correo.');
+    }
   }
 
   Future<void> _confirmSignOut() async {
@@ -599,6 +638,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     ),
                     child: Column(
                       children: [
+                        _SettingsRow(
+                          label: 'Contacto / Reportar un problema',
+                          onTap: _contactSupport,
+                          showDivider: true,
+                        ),
                         _SettingsRow(
                           label: 'Política de privacidad',
                           onTap: () => context.push(AppRoutes.privacyPolicy),

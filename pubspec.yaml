@@ -1,7 +1,7 @@
 name: verbenai
 description: "VerbenAI — genera fotos con IA en escenas predefinidas o por texto libre."
 publish_to: "none"
-version: 0.1.0+34
+version: 0.1.0+35
 
 environment:
   sdk: ^3.6.0
@@ -36,6 +36,8 @@ dependencies:
   # cancelación real solo puede hacerse ahí, nunca con un toggle in-app).
   gal: ^2.3.0
   url_launcher: ^6.3.1
+  # Versión + build number para el email de "Reportar un problema" en Perfil.
+  package_info_plus: ^9.0.1
 
   # Analítica / crash reporting (instrumentado desde el día 1, ver
   # services/analytics_service.dart)
