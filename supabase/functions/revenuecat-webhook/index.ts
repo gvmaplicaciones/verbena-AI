@@ -23,6 +23,7 @@ import {
   grantActiveSubscription,
   grantExtraPack,
   reactivateSubscription,
+  transferSubscription,
 } from "../_shared/revenuecat.ts";
 
 const EXPECTED_AUTH = Deno.env.get("REVENUECAT_WEBHOOK_AUTHORIZATION")!;
@@ -37,6 +38,10 @@ interface RevenueCatEvent {
   // valor que store_transaction_id en GET /subscribers, usado para dedupear
   // grantExtraPack() contra reconcileSubscriberState() (ver _shared/revenuecat.ts).
   transaction_id?: string;
+  // Solo presentes en TRANSFER: app_user_id(s) de origen/destino de la
+  // migración del recibo (docs de RevenueCat, "event-types-and-fields").
+  transferred_from?: string[];
+  transferred_to?: string[];
 }
 
 Deno.serve(async (req) => {
@@ -115,12 +120,13 @@ Deno.serve(async (req) => {
       case "NON_RENEWING_PURCHASE":
         if (event.product_id) await grantExtraPack(admin, userId, event.product_id, event.transaction_id);
         break;
+      case "TRANSFER":
+        await transferSubscription(admin, event.transferred_from ?? [], event.transferred_to ?? []);
+        break;
       default:
         // BILLING_ISSUE: RevenueCat manda CANCELLATION/EXPIRATION aparte si
-        // no se resuelve, nada que hacer aquí todavía. TRANSFER: migración
-        // de compra entre app_user_id -- no debería pasar con auth anónima
-        // pura vinculada 1:1 (ver main.dart); pendiente de diseño si se
-        // añade login real más adelante. Cualquier otro tipo se ignora.
+        // no se resuelve, nada que hacer aquí todavía. Cualquier otro tipo
+        // se ignora.
         console.warn(`revenuecat-webhook: evento no manejado '${event.type}' para ${userId}`);
     }
     return json({ status: "processed" });

@@ -214,6 +214,35 @@ async function purgePersistedPhotos(
     .in("id", photos.map((p: { id: string }) => p.id));
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * TRANSFER: RevenueCat migra el recibo/entitlement de un app_user_id a otro
+ * -- posible desde que existe login real con Google/Apple (antes se asumía
+ * que no podía pasar con auth anónima 1:1, ver comentario histórico en
+ * revenuecat-webhook/index.ts). El origen (transferred_from) deja de tener
+ * la suscripción: se trata igual que EXPIRATION, mismo motivo de fondo (sin
+ * suscripción activa no hay base para conservar fotos/prendas persistidas).
+ * El destino (transferred_to) se reconcilia contra la API en vivo de
+ * RevenueCat en vez de inferir el plan aquí -- el payload de TRANSFER no
+ * incluye product_id, y reconcileSubscriberState() ya sabe resolver el plan
+ * real desde GET /v1/subscribers/{id}.
+ */
+export async function transferSubscription(
+  admin: ReturnType<typeof supabaseAdmin>,
+  transferredFrom: string[],
+  transferredTo: string[],
+): Promise<void> {
+  for (const fromId of transferredFrom) {
+    if (!UUID_RE.test(fromId)) continue;
+    await expireSubscription(admin, fromId);
+  }
+  for (const toId of transferredTo) {
+    if (!UUID_RE.test(toId)) continue;
+    await reconcileSubscriberState(admin, toId);
+  }
+}
+
 /**
  * NON_RENEWING_PURCHASE: pack de créditos extra (nunca caduca). Se concede
  * siempre que el evento llegue, sin comprobar nuestro subscription_status en
