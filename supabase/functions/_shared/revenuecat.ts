@@ -457,26 +457,39 @@ export async function reconcileSubscriberState(
     }
   }
 
-  // Red de seguridad detectada el 2026-07-30: un producto puede tener una
-  // compra real y activa en `subscriptions` sin estar adjunto a ningún
-  // entitlement en el dashboard de RevenueCat (Product Catalog >
-  // Entitlements) -- antes solo se comprobaba con `entitlements` totalmente
-  // vacío, pero el mismo problema ocurre si SÍ hay entitlements (p.ej. el del
-  // pack extra) y el de la suscripción real simplemente no está entre ellos
-  // (confirmado el 2026-08-05, ver JSON de diagnóstico en logs: el único
-  // entitlement devuelto era 'extra_7', la suscripción 'semanal' ni
-  // aparecía). No se concede acceso solo con esta señal (abriría otro vector
-  // de abuso si alguien manipulase subscriptions sin más) -- solo se deja un
-  // aviso explícito para que la próxima vez sea detectable, no silencioso.
+  // Red de seguridad detectada el 2026-07-30, ampliada el 2026-08-05: un
+  // producto puede tener una compra real y activa en `subscriptions` sin que
+  // el entitlement la refleje -- ya sea porque no está adjunto en el
+  // dashboard, o porque SÍ hay un entitlement pero apunta a otra cosa (p.ej.
+  // el pack extra, que comparte entitlement con los planes y a veces
+  // RevenueCat reporta su product_identifier como el grantor "actual" justo
+  // tras comprarlo, ganándole el puesto a la suscripción real -- reproducido
+  // el 2026-08-05: comprar 'extra_7' con una suscripción 'semanal' vigente
+  // hizo que el filtro de `entitlements` se quedara sin candidato y
+  // expireSubscription() borrase una suscripción que seguía activa).
+  // `subscriptions` viene de la misma respuesta verificada de RevenueCat que
+  // `entitlements` (no la manda ni la puede tocar el cliente), así que fiarse
+  // de ella aquí para un producto que coincide con un plan conocido es igual
+  // de seguro -- evita expirar en falso una suscripción real por un desajuste
+  // de qué producto "posee" el entitlement en un instante dado.
   if (!active) {
     const activeSubKey = Object.keys(subscriptions).find((key) => {
       const sub = subscriptions[key] as { expires_date?: string | null };
       const expiresMs = sub.expires_date ? Date.parse(sub.expires_date) : null;
       return expiresMs === null || Number.isNaN(expiresMs) || expiresMs > now;
     });
-    if (activeSubKey) {
+    if (activeSubKey && validPlanIds.has(resolveInternalProductId(activeSubKey))) {
+      const sub = subscriptions[activeSubKey] as { expires_date?: string | null };
+      const expiresMs = sub.expires_date ? Date.parse(sub.expires_date) : null;
+      active = { product_identifier: activeSubKey, expires_date_ms: expiresMs };
+      console.warn(
+        `revenuecat: user=${userId} recuperado vía 'subscriptions' -- '${activeSubKey}' no tenía entitlement válido al reconciliar (posible solape con un consumible en el mismo entitlement, ver comentario). entitlements=${
+          JSON.stringify(entitlements)
+        }`,
+      );
+    } else if (activeSubKey) {
       console.error(
-        `revenuecat: MISCONFIGURACIÓN -- user=${userId} tiene una compra activa ('${activeSubKey}') en subscriptions pero no hay ningún entitlement válido. entitlements=${
+        `revenuecat: MISCONFIGURACIÓN -- user=${userId} tiene una compra activa ('${activeSubKey}') en subscriptions pero no coincide con ningún plan conocido. entitlements=${
           JSON.stringify(entitlements)
         } subscriptions=${JSON.stringify(subscriptions)}. Revisar en el dashboard de RevenueCat (Product Catalog > Entitlements) que '${activeSubKey}' esté adjunto al entitlement 'verbenAI Pro'.`,
       );
