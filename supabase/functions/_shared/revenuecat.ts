@@ -426,9 +426,27 @@ export async function reconcileSubscriberState(
   // entitlement, caducado o no, se tratara como vitalicio. Resucitó por
   // error la suscripción de un usuario real cuyo periodo había expirado
   // el día anterior, con cada llamada a reconcile() (cada sign-in/resume).
+  //
+  // Bug detectado el 2026-08-05: el pack extra ('extra_7', consumible sin
+  // fecha de expiración) está adjunto al mismo entitlement que los planes de
+  // suscripción en el dashboard de RevenueCat, así que competía en este
+  // mismo bucle y ganaba por ser "vitalicio" (expiresMs null) frente a la
+  // suscripción real, que sí tiene fecha. Eso hacía que se llamase
+  // grantActiveSubscription(..., 'extra_7'), que no coincide con ningún
+  // plan_id y no concede nada -- el usuario se quedaba en 0/0 pese a tener
+  // una suscripción real y vigente. Se filtran aquí los candidatos a solo
+  // los que de verdad son un plan (tabla `plans`, is_active=true).
+  const { data: activePlans, error: plansListErr } = await admin
+    .from("plans")
+    .select("plan_id")
+    .eq("is_active", true);
+  if (plansListErr) throw plansListErr;
+  const validPlanIds = new Set((activePlans ?? []).map((p: { plan_id: string }) => p.plan_id));
+
   let active: { product_identifier: string; expires_date_ms: number | null } | null = null;
   for (const key of Object.keys(entitlements)) {
     const ent = entitlements[key] as { expires_date?: string | null; product_identifier: string };
+    if (!validPlanIds.has(resolveInternalProductId(ent.product_identifier))) continue;
     const expiresMs = ent.expires_date ? Date.parse(ent.expires_date) : null;
     if (expiresMs === null || Number.isNaN(expiresMs) || expiresMs > now) {
       const currentBest = active?.expires_date_ms ?? Infinity;
@@ -442,12 +460,15 @@ export async function reconcileSubscriberState(
   // Red de seguridad detectada el 2026-07-30: un producto puede tener una
   // compra real y activa en `subscriptions` sin estar adjunto a ningún
   // entitlement en el dashboard de RevenueCat (Product Catalog >
-  // Entitlements), lo que deja `entitlements` vacío y antes hacía que esta
-  // función concluyera en silencio "sin suscripción activa" pese al cobro
-  // real. No se concede acceso solo con esta señal (abriría otro vector de
-  // abuso si alguien manipulase subscriptions sin más) -- solo se deja un
+  // Entitlements) -- antes solo se comprobaba con `entitlements` totalmente
+  // vacío, pero el mismo problema ocurre si SÍ hay entitlements (p.ej. el del
+  // pack extra) y el de la suscripción real simplemente no está entre ellos
+  // (confirmado el 2026-08-05, ver JSON de diagnóstico en logs: el único
+  // entitlement devuelto era 'extra_7', la suscripción 'semanal' ni
+  // aparecía). No se concede acceso solo con esta señal (abriría otro vector
+  // de abuso si alguien manipulase subscriptions sin más) -- solo se deja un
   // aviso explícito para que la próxima vez sea detectable, no silencioso.
-  if (!active && Object.keys(entitlements).length === 0) {
+  if (!active) {
     const activeSubKey = Object.keys(subscriptions).find((key) => {
       const sub = subscriptions[key] as { expires_date?: string | null };
       const expiresMs = sub.expires_date ? Date.parse(sub.expires_date) : null;
@@ -455,7 +476,9 @@ export async function reconcileSubscriberState(
     });
     if (activeSubKey) {
       console.error(
-        `revenuecat: MISCONFIGURACIÓN -- user=${userId} tiene una compra activa ('${activeSubKey}') en subscriptions pero entitlements está vacío. Revisar en el dashboard de RevenueCat (Product Catalog > Entitlements) que el producto esté adjunto a un entitlement.`,
+        `revenuecat: MISCONFIGURACIÓN -- user=${userId} tiene una compra activa ('${activeSubKey}') en subscriptions pero no hay ningún entitlement válido. entitlements=${
+          JSON.stringify(entitlements)
+        } subscriptions=${JSON.stringify(subscriptions)}. Revisar en el dashboard de RevenueCat (Product Catalog > Entitlements) que '${activeSubKey}' esté adjunto al entitlement 'verbenAI Pro'.`,
       );
     }
   }

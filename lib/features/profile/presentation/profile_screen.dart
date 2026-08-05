@@ -358,13 +358,30 @@ ID de usuario: $userId''';
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  VerbenaRoundIconButton(
-                      icon: const VerbenaBackChevronIcon(),
-                      onTap: () => context.safePop()),
-                  const SizedBox(width: 12),
-                  Text('Tu perfil', style: VerbenaText.display(size: 22)),
+                  Row(
+                    children: [
+                      VerbenaRoundIconButton(
+                          icon: const VerbenaBackChevronIcon(),
+                          onTap: () => context.safePop()),
+                      const SizedBox(width: 12),
+                      Text('Tu perfil', style: VerbenaText.display(size: 22)),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  // Visible siempre -- pensado para que el usuario pueda
+                  // comprobar de un vistazo con qué cuenta ha iniciado
+                  // sesión en este dispositivo (confusión real detectada el
+                  // 2026-08-05 al probar con dos cuentas distintas, ver
+                  // account_gate_screen.dart).
+                  Text(
+                    ref.watch(supabaseClientProvider).auth.currentUser?.email ??
+                        'Sesión sin vincular a ningún email',
+                    style: VerbenaText.body(
+                        size: 12.5, color: VerbenaColors.textMuted),
+                  ),
                 ],
               ),
             ),

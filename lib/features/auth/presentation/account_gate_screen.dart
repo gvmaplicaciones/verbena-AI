@@ -86,17 +86,31 @@ class _AccountGateScreenState extends ConsumerState<AccountGateScreen> {
   Future<bool> _reconcileAfterSignIn() async {
     final newUserId = Supabase.instance.client.auth.currentUser?.id;
     if (newUserId != null) {
-      await Purchases.logIn(newUserId);
+      // La sesión de Supabase ya está iniciada llegados aquí -- un fallo de
+      // RevenueCat (red, servicio caído) no debe dejar al usuario "atascado"
+      // en esta pantalla pareciendo que el login no funcionó. Bug detectado
+      // el 2026-08-05: Purchases.logIn() sin try/catch propio hacía que
+      // cualquier fallo suyo se colara al catch general de
+      // _continueWithGoogle/_continueWithApple/_submitSignIn, mostrando "No
+      // hemos podido continuar" pese a que la sesión ya se había recuperado
+      // de verdad -- solo se perdía la sincronización de créditos, recuperable
+      // en el próximo resume/reconcile.
       try {
-        await Purchases.restorePurchases();
-      } catch (_) {
-        // Best-effort: si no hay nada que restaurar o la tienda no responde,
-        // seguimos igualmente -- reconcile() de abajo ya deja user_credits al
-        // día con lo que RevenueCat sepa.
+        await Purchases.logIn(newUserId);
+        try {
+          await Purchases.restorePurchases();
+        } catch (_) {
+          // Best-effort: si no hay nada que restaurar o la tienda no responde,
+          // seguimos igualmente -- reconcile() de abajo ya deja user_credits al
+          // día con lo que RevenueCat sepa.
+        }
+        try {
+          await ref.read(purchasesRepositoryProvider).reconcile();
+        } catch (_) {}
+      } catch (e, st) {
+        unawaited(Sentry.captureException(e,
+            stackTrace: st, hint: Hint.withMap({'stage': 'reconcileAfterSignIn'})));
       }
-      try {
-        await ref.read(purchasesRepositoryProvider).reconcile();
-      } catch (_) {}
     }
     ref.invalidate(myCreditsProvider);
     try {
