@@ -444,3 +444,28 @@ hay SDK de Flutter, así que nada de lo anterior está compilado/verificado).
 7. **Pago pendiente** (tarjeta de aprobación diferida en sandbox): al
    confirmarse, el listener de A.1 debe refrescar créditos sin reabrir el
    paywall.
+
+---
+
+## 6. ¿Y Android? — impacto del rework en la plataforma que "funciona"
+
+Android funciona hoy en parte por suerte: varios de los problemas de arriba
+son multiplataforma y existen también allí, solo que no duelen (todavía) o
+son menos probables. **No hace falta ningún cambio exclusivo de Android**: al
+ser un único codebase, aplicar las fases A y B lo arregla en las dos
+plataformas a la vez. Estado real de cada problema en Android:
+
+| Problema | ¿Afecta a Android hoy? | Detalle |
+|---|---|---|
+| P1 rebote por restore automático | **Sí, menos probable** | El restore de Play también transfiere la suscripción si se compró bajo otra cuenta de la app con la misma cuenta de Google del dispositivo. La diferencia con iOS es de alcance (Play no arrastra todo el historial del Apple ID), no de inmunidad. A.2 lo elimina en ambas. |
+| P2 identidad RevenueCat solo en arranque | **Sí, idéntico** | Mismo código, mismos huecos. A.1 lo cubre en ambas. |
+| P3 signOut deja la app sin sesión | **Sí, idéntico** | Bug real hoy en Android: tras cerrar sesión, todo falla hasta reiniciar la app. Si no se ha reportado es porque casi nadie usa ese botón aún. A.3 lo arregla. |
+| P4 borrar datos deja RevenueCat en el uid borrado | **Sí, idéntico** | Una compra posterior al borrado concedería créditos a una cuenta inexistente, también en Android. A.1 lo cubre. |
+| P5 Google Sign-In con nonce fijo | No (funciona) | Funciona de casualidad porque en Android el nonce sí acaba incrustado y la audiencia es el client ID web ya autorizado. Quitar el nonce (Fase B) es el flujo estándar y sigue funcionando — solo repetir la prueba de login en Android tras el cambio. |
+| P6 sin listener de CustomerInfo | **Sí, y MÁS que en iOS** | Los pagos pendientes (métodos de pago lentos) son un clásico de Google Play, raros en App Store. Hoy "te avisaremos en cuanto se confirme" no tiene nada escuchando detrás. El listener de A.1 lo cubre. |
+| P7 modo admin sin re-sync | Sí, menor | Igual en ambas; cubierto por A.1 sin tocar AdminRepository. |
+
+Implicación para las pruebas: la matriz de la sección 5 debe pasarse
+**también en un dispositivo Android** tras el rework — en especial los casos
+2, 3, 6 (sesiones) y 7 (pago pendiente, que en Android es el caso común de
+verdad), y un login con Google normal tras quitar el nonce.
