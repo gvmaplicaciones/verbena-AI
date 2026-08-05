@@ -1,57 +1,12 @@
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../providers/supabase_provider.dart';
-
-// TODO(debug bad_jwt): breadcrumb temporal para diagnosticar "invalid claim:
-// missing sub claim" en linkIdentityWithIdToken/Google -- decodifica el
-// payload real del idToken justo antes de mandarlo a Supabase y lo deja
-// como breadcrumb, así queda adjunto en Sentry al AuthException(bad_jwt) que
-// account_gate_screen.dart ya captura justo después. El iPhone de prueba no
-// tiene consola visible, por eso Sentry y no solo debugPrint. Quitar este
-// breadcrumb (y el import de sentry_flutter si deja de hacer falta aquí) en
-// cuanto se confirme la causa real -- el payload decodificado puede incluir
-// email/nombre del usuario.
-Future<void> _debugLogIdTokenPayload(String source, String idToken) async {
-  final parts = idToken.split('.');
-  final data = <String, dynamic>{'parts': parts.length, 'length': idToken.length};
-  if (parts.length != 3) {
-    data['error'] = 'idToken no tiene forma de JWT (esperadas 3 partes)';
-  } else {
-    try {
-      var payload = parts[1];
-      payload += '=' * ((4 - payload.length % 4) % 4);
-      data['payload'] = utf8.decode(base64Url.decode(payload));
-    } catch (e) {
-      data['error'] = 'no se pudo decodificar el payload: $e';
-    }
-  }
-  debugPrint('[bad_jwt debug] $source idToken: $data');
-  await Sentry.addBreadcrumb(
-    Breadcrumb(
-      category: 'auth.bad_jwt_debug',
-      message: '$source idToken payload (debug temporal)',
-      data: data,
-      level: SentryLevel.info,
-    ),
-  );
-}
-
-/// Nonce fijo para toda la vida del proceso -- GoogleSignIn.instance.initialize()
-/// (main.dart) solo puede llamarse una vez, así que no se puede regenerar por
-/// cada intento de login. Google incrusta [googleSignInHashedNonce] tal cual
-/// en el claim "nonce" del idToken; Supabase recibe el nonce en crudo
-/// ([googleSignInRawNonce]) y lo hashea él mismo para comparar (igual que ya
-/// hace Apple más abajo, mismo motivo).
-final googleSignInRawNonce = generateNonce();
-final googleSignInHashedNonce = sha256.convert(utf8.encode(googleSignInRawNonce)).toString();
 
 class AuthRepository {
   AuthRepository(this._client);
@@ -75,30 +30,30 @@ class AuthRepository {
     if (idToken == null) {
       throw const AuthException('Google no devolvió un idToken.');
     }
-    await _debugLogIdTokenPayload('Google', idToken);
     return idToken;
   }
 
   /// Igual que [linkEmailPassword] pero con Google: vincula la sesión
-  /// anónima actual sin crear un usuario nuevo (mismo user_id).
+  /// anónima actual sin crear un usuario nuevo (mismo user_id). Sin nonce --
+  /// flujo nativo estándar de Supabase con google_sign_in (a diferencia de
+  /// Apple, que sí lo exige más abajo).
   Future<void> linkGoogle() async {
     final idToken = await _googleTokens();
     await _client.auth.linkIdentityWithIdToken(
       provider: OAuthProvider.google,
       idToken: idToken,
-      nonce: googleSignInRawNonce,
     );
   }
 
   /// Igual que [signInExisting] pero con Google: sustituye la sesión anónima
   /// actual por la cuenta real ya vinculada a esta cuenta de Google (user_id
-  /// distinto -- el caller debe reconfigurar RevenueCat después).
+  /// distinto -- RevenueCat se re-sincroniza solo, ver PurchasesAuthSync en
+  /// main.dart).
   Future<AuthResponse> signInWithGoogle() async {
     final idToken = await _googleTokens();
     return _client.auth.signInWithIdToken(
       provider: OAuthProvider.google,
       idToken: idToken,
-      nonce: googleSignInRawNonce,
     );
   }
 
@@ -138,7 +93,8 @@ class AuthRepository {
 
   /// Igual que [signInWithGoogle] pero con Apple: sustituye la sesión
   /// anónima actual por la cuenta real ya vinculada a este Apple ID
-  /// (user_id distinto -- el caller debe reconfigurar RevenueCat después).
+  /// (user_id distinto -- RevenueCat se re-sincroniza solo, ver
+  /// PurchasesAuthSync en main.dart).
   Future<AuthResponse> signInWithApple() async {
     final tokens = await _appleTokens();
     return _client.auth.signInWithIdToken(
@@ -158,16 +114,33 @@ class AuthRepository {
 
   /// Para un usuario que reinstaló y ya tenía cuenta: sustituye la sesión
   /// anónima actual (se descarta) por la cuenta real existente, con un
-  /// user_id distinto. El caller debe reconfigurar RevenueCat
-  /// (Purchases.logIn + restorePurchases) y refrescar créditos después.
+  /// user_id distinto. RevenueCat se re-sincroniza solo (PurchasesAuthSync,
+  /// ver main.dart); el caller solo necesita refrescar créditos (reconcile)
+  /// después.
   Future<AuthResponse> signInExisting({required String email, required String password}) {
     return _client.auth.signInWithPassword(email: email, password: password);
   }
 
   /// Cierra la sesión actual. Solo disponible para cuentas vinculadas
   /// (!isAnonymous) -- cerrar sesión en una cuenta anónima destruiría el
-  /// acceso a los datos sin posibilidad de recuperarlos.
+  /// acceso a los datos sin posibilidad de recuperarlos. Prefiere
+  /// [signOutAndStartFresh] salvo que el caller vaya a crear la sesión
+  /// siguiente por otra vía (p.ej. AdminRepository.exitAdminMode).
   Future<void> signOut() => _client.auth.signOut();
+
+  /// Cierra la sesión real y arranca inmediatamente una sesión anónima
+  /// nueva, dejando la app en el mismo estado que un usuario recién
+  /// instalado (mismo patrón que AccountRepository.deleteMyDataAndRestart).
+  /// Sin esto, tras signOut() la app se quedaba sin ninguna sesión hasta el
+  /// siguiente arranque en frío -- cualquier llamada a Supabase (créditos,
+  /// plantillas, generación) fallaba mientras tanto (bug real detectado el
+  /// 2026-08-05, ver docs/rework-ios-login-suscripciones.md P3). RevenueCat
+  /// se re-sincroniza solo vía PurchasesAuthSync al emitirse el signIn
+  /// anónimo.
+  Future<void> signOutAndStartFresh() async {
+    await _client.auth.signOut();
+    await _client.auth.signInAnonymously();
+  }
 
   /// Supabase manda el email de recuperación y gestiona el enlace -- de
   /// momento con su página web por defecto para fijar la contraseña nueva

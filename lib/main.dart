@@ -15,7 +15,9 @@ import 'core/config/env.dart';
 import 'core/router/app_router.dart' show initialLocationProvider;
 import 'core/router/app_routes.dart' show AppRoutes, onboardingCompletedPrefsKey;
 import 'data/repositories/admin_repository.dart' show savedAnonRefreshTokenPrefsKey;
-import 'data/repositories/auth_repository.dart' show googleSignInHashedNonce;
+import 'data/repositories/credits_repository.dart' show myCreditsProvider;
+import 'data/repositories/purchases_repository.dart' show purchasesRepositoryProvider;
+import 'services/purchases_auth_sync.dart';
 
 // A diferencia de las llamadas nativas (Sentry, RevenueCat), que sí respetan
 // network_security_config.xml, el HttpClient de dart:io usa su propio store
@@ -63,14 +65,12 @@ Future<void> main() async {
 
   // serverClientId = client ID "web" (no el de Android): es el que da a los
   // idToken la audiencia que Supabase espera. Se llama una sola vez, antes
-  // de cualquier authenticate() en AuthRepository. nonce: ver
-  // googleSignInHashedNonce en auth_repository.dart -- Google lo incrusta tal
-  // cual en el idToken, y linkGoogle()/signInWithGoogle() mandan la versión
-  // en crudo a Supabase para que la valide.
-  await GoogleSignIn.instance.initialize(
-    serverClientId: Env.googleWebClientId,
-    nonce: googleSignInHashedNonce,
-  );
+  // de cualquier authenticate() en AuthRepository. Sin nonce: es el flujo
+  // nativo estándar de Supabase con google_sign_in (a diferencia de Apple,
+  // que sí lo exige) -- el nonce fijo de proceso que había antes era el
+  // sospechoso principal del bad_jwt visto en iOS, ver
+  // docs/rework-ios-login-suscripciones.md P5.
+  await GoogleSignIn.instance.initialize(serverClientId: Env.googleWebClientId);
 
   // Auth anónima desde el primer uso, sin registro obligatorio. Se vincula a
   // una cuenta real (email/Apple/Google) solo si el usuario decide
@@ -115,8 +115,26 @@ Future<void> main() async {
     },
     appRunner: () {
       _bindSentryUserToAuthSession(auth);
-      runApp(ProviderScope(
+
+      // Container explícito (en vez de dejar que ProviderScope cree uno
+      // interno) para que PurchasesAuthSync pueda invalidar myCreditsProvider
+      // desde fuera del árbol de widgets al detectar un cambio de
+      // entitlement -- ver services/purchases_auth_sync.dart.
+      final container = ProviderContainer(
         overrides: [initialLocationProvider.overrideWithValue(initialLocation)],
+      );
+      PurchasesAuthSync.start(
+        auth,
+        onEntitlementChanged: () async {
+          try {
+            await container.read(purchasesRepositoryProvider).reconcile();
+          } catch (_) {}
+          container.invalidate(myCreditsProvider);
+        },
+      );
+
+      runApp(UncontrolledProviderScope(
+        container: container,
         child: const VerbenaApp(),
       ));
     },

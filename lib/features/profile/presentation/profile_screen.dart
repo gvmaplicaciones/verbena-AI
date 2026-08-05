@@ -258,7 +258,16 @@ ID de usuario: $userId''';
 
     setState(() => _busy = true);
     try {
-      await ref.read(authRepositoryProvider).signOut();
+      await ref.read(authRepositoryProvider).signOutAndStartFresh();
+      // Igual que en _confirmDeleteData: la sesión anónima nueva ya está
+      // activa, pero estos FutureProvider no son .autoDispose -- sin
+      // invalidar, seguían sirviendo desde caché los datos de la cuenta que
+      // acaba de cerrar sesión (bug real detectado el 2026-08-05, ver
+      // docs/rework-ios-login-suscripciones.md P3).
+      ref.invalidate(myGenerationsProvider);
+      ref.invalidate(persistedPhotosProvider);
+      ref.invalidate(myCreditsProvider);
+      ref.invalidate(garmentsProvider);
       if (!mounted) return;
       context.go(AppRoutes.onboarding);
     } catch (_) {

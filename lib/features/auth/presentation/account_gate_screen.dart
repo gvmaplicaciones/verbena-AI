@@ -5,7 +5,6 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -78,40 +77,21 @@ class _AccountGateScreenState extends ConsumerState<AccountGateScreen> {
   }
 
   /// Tras un signIn/signInWithGoogle que trae un user_id distinto al de la
-  /// sesión anónima previa: reengancha RevenueCat a la identidad real y
-  /// refresca créditos, igual que hace _submitSignIn con email. Devuelve si
-  /// la cuenta recuperada quedó con acceso de suscripción activo --
-  /// úsalo para avisar si la compra real puede estar en otra cuenta de este
-  /// mismo dispositivo (ver _confirmSignInIfActiveSubscription).
+  /// sesión anónima previa: re-sincroniza user_credits con el estado real de
+  /// RevenueCat para esa cuenta y refresca créditos. RevenueCat en sí ya no
+  /// se reengancha aquí -- lo hace solo PurchasesAuthSync (ver main.dart) al
+  /// detectar el cambio de sesión, y ya NO se llama a restorePurchases(): en
+  /// iOS eso arrastraba el recibo completo del Apple ID del dispositivo a la
+  /// cuenta que acababa de loguear y "rebotaba" la suscripción entre cuentas
+  /// (bug real en producción el 2026-08-05, ver
+  /// docs/rework-ios-login-suscripciones.md P1/P2). Devuelve si la cuenta
+  /// recuperada quedó con acceso de suscripción activo -- úsalo para avisar
+  /// si la compra real puede estar en otra cuenta de este mismo dispositivo
+  /// (ver _confirmSignInIfActiveSubscription).
   Future<bool> _reconcileAfterSignIn() async {
-    final newUserId = Supabase.instance.client.auth.currentUser?.id;
-    if (newUserId != null) {
-      // La sesión de Supabase ya está iniciada llegados aquí -- un fallo de
-      // RevenueCat (red, servicio caído) no debe dejar al usuario "atascado"
-      // en esta pantalla pareciendo que el login no funcionó. Bug detectado
-      // el 2026-08-05: Purchases.logIn() sin try/catch propio hacía que
-      // cualquier fallo suyo se colara al catch general de
-      // _continueWithGoogle/_continueWithApple/_submitSignIn, mostrando "No
-      // hemos podido continuar" pese a que la sesión ya se había recuperado
-      // de verdad -- solo se perdía la sincronización de créditos, recuperable
-      // en el próximo resume/reconcile.
-      try {
-        await Purchases.logIn(newUserId);
-        try {
-          await Purchases.restorePurchases();
-        } catch (_) {
-          // Best-effort: si no hay nada que restaurar o la tienda no responde,
-          // seguimos igualmente -- reconcile() de abajo ya deja user_credits al
-          // día con lo que RevenueCat sepa.
-        }
-        try {
-          await ref.read(purchasesRepositoryProvider).reconcile();
-        } catch (_) {}
-      } catch (e, st) {
-        unawaited(Sentry.captureException(e,
-            stackTrace: st, hint: Hint.withMap({'stage': 'reconcileAfterSignIn'})));
-      }
-    }
+    try {
+      await ref.read(purchasesRepositoryProvider).reconcile();
+    } catch (_) {}
     ref.invalidate(myCreditsProvider);
     try {
       final credits = await ref.read(myCreditsProvider.future);
