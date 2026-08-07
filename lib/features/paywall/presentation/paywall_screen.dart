@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/constants/credits.dart';
 import '../../../core/router/app_routes.dart';
@@ -188,6 +189,12 @@ class _PaywallScreenState extends ConsumerState<PaywallScreen> {
   Future<void> _subscribeSelected() => _selectedPlanId == PlanIds.semanal
       ? _subscribeSemanal()
       : _subscribeMensual();
+
+  Future<void> _openTermsOfUse() async {
+    final uri = Uri.parse(
+        'https://gvmaplicaciones.github.io/verbena-AI/terminos_servicio');
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
 
   Future<void> _buyExtra() => _buy(ExtraPackIds.extra7, () async {
         if (mounted) setState(() => _justBoughtPackId = ExtraPackIds.extra7);
@@ -447,16 +454,28 @@ class _PaywallScreenState extends ConsumerState<PaywallScreen> {
                       ),
                     ),
                   ],
-                  Center(
-                    child: TextButton(
-                      onPressed: () => context.push(AppRoutes.privacyPolicy),
-                      child: Text(
-                        'Política de privacidad',
-                        style: VerbenaText.body(
-                                size: 12, color: VerbenaColors.textMuted)
-                            .copyWith(decoration: TextDecoration.underline),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      TextButton(
+                        onPressed: () => context.push(AppRoutes.privacyPolicy),
+                        child: Text(
+                          'Política de privacidad',
+                          style: VerbenaText.body(
+                                  size: 12, color: VerbenaColors.textMuted)
+                              .copyWith(decoration: TextDecoration.underline),
+                        ),
                       ),
-                    ),
+                      TextButton(
+                        onPressed: _openTermsOfUse,
+                        child: Text(
+                          'Términos de uso',
+                          style: VerbenaText.body(
+                                  size: 12, color: VerbenaColors.textMuted)
+                              .copyWith(decoration: TextDecoration.underline),
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 12),
                 ],
