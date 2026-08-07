@@ -186,16 +186,26 @@ const TEXT_MODERATION_SYSTEM_INSTRUCTION =
  * generación) porque esta comprobación cubre la línea no negociable del
  * producto (nunca generar personas reales identificables), a diferencia de
  * otros fallos donde fail-open sería aceptable.
+ *
+ * max_output_tokens 1000 (antes 200, incidente 2026-08-07): con 200,
+ * gemini-3-flash truncaba la salida a mitad del JSON (`{"is_real_person":`
+ * sin valor ni cierre) en casos reproducibles, cayendo siempre en el
+ * fail-closed de abajo y rechazando prompts legítimos sin persona real --
+ * confirmado con logs de producción, no era una clasificación real del
+ * modelo. thinking_level "none" no garantiza que no se reserven tokens de
+ * razonamiento internos que cuenten contra el límite, así que se sube con
+ * margen amplio en vez de lo justo (coste ínfimo, ver arriba).
  */
 export async function runTextModerationCheck(promptText: string): Promise<boolean> {
   const prediction = await runPrediction(TEXT_MODERATION_MODEL, {
     prompt: promptText,
     system_instruction: TEXT_MODERATION_SYSTEM_INSTRUCTION,
     thinking_level: "none",
-    max_output_tokens: 200,
+    max_output_tokens: 1000,
   }, 30);
 
   const output = prediction.output;
+  console.log("runTextModerationCheck: prediction.output completo", JSON.stringify(output));
   const text = Array.isArray(output) ? output.join("") : String(output ?? "");
   const match = text.match(/"is_real_person"\s*:\s*(true|false)/i);
   if (!match) {
